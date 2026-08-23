@@ -27,9 +27,6 @@ input_boolean:
     initial: off
 
 input_button:
-  yarr_connect_trakt:
-    name: "yArr: Connect Trakt"
-    icon: mdi:link-variant
   yarr_surprise_me_now:
     name: "yArr: Surprise Me Now"
     icon: mdi:dice-multiple

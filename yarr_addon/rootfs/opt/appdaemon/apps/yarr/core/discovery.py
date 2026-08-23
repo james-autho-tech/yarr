@@ -1,5 +1,5 @@
-"""Pure filtering/matching over Trakt candidates — no network calls
-here (those live in clients/trakt.py, clients/radarr.py, called from
+"""Pure filtering/matching over TMDB candidates — no network calls
+here (those live in clients/tmdb.py, clients/radarr.py, called from
 yarr.py; core/ stays free of HTTP/AppDaemon dependencies)."""
 
 from dataclasses import dataclass

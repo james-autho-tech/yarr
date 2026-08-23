@@ -5,7 +5,11 @@ one of the two files."""
 
 from dataclasses import dataclass, field
 
-REQUIRED_SECRETS = ("radarr_url", "radarr_api_key", "trakt_client_id", "trakt_client_secret")
+# jellyfin_* is required now (not just an optional webhook fallback) —
+# watch-history exclusion reads it directly, since TMDB has no concept
+# of "what have I watched" the way a personal account would.
+REQUIRED_SECRETS = ("radarr_url", "radarr_api_key", "tmdb_api_key",
+                     "jellyfin_url", "jellyfin_api_key")
 
 
 class ConfigError(Exception):
@@ -32,7 +36,11 @@ class YarrConfig:
     surprise_tag: str = "yarr-surprise"
     completion_threshold_pct: float = 90.0
     delete_grace_period_hours: float = 24.0
-    trakt_history_resync_hours: float = 24.0
+    # Which Jellyfin user's watch history to read — leave unset to use
+    # whichever account the API key's own /Users lookup returns first
+    # (fine for a single-user Jellyfin instance).
+    jellyfin_username: str = None
+    watched_resync_hours: float = 24.0
     dry_run: bool = False
 
     # --- addon_secrets.json (config.yaml options — never in apps.yaml) ---
@@ -40,8 +48,7 @@ class YarrConfig:
     radarr_api_key: str = ""
     jellyfin_url: str = ""
     jellyfin_api_key: str = ""
-    trakt_client_id: str = ""
-    trakt_client_secret: str = ""
+    tmdb_api_key: str = ""
 
 
 def build_config(apps_yaml_dict: dict, secrets_dict: dict) -> YarrConfig:
@@ -72,19 +79,17 @@ def build_config(apps_yaml_dict: dict, secrets_dict: dict) -> YarrConfig:
         surprise_tag=str(a.get("surprise_tag", "yarr-surprise")),
         completion_threshold_pct=float(a.get("completion_threshold_pct", 90.0)),
         delete_grace_period_hours=float(a.get("delete_grace_period_hours", 24.0)),
-        trakt_history_resync_hours=float(a.get("trakt_history_resync_hours", 24.0)),
+        jellyfin_username=(str(a["jellyfin_username"]) if a.get("jellyfin_username") else None),
+        watched_resync_hours=float(a.get("watched_resync_hours", 24.0)),
         dry_run=bool(a.get("dry_run", False)),
         radarr_url=str(s.get("radarr_url", "")),
         radarr_api_key=str(s.get("radarr_api_key", "")),
         jellyfin_url=str(s.get("jellyfin_url", "")),
         jellyfin_api_key=str(s.get("jellyfin_api_key", "")),
-        trakt_client_id=str(s.get("trakt_client_id", "")),
-        trakt_client_secret=str(s.get("trakt_client_secret", "")),
+        tmdb_api_key=str(s.get("tmdb_api_key", "")),
     )
 
 
 def required_secrets_ok(cfg: YarrConfig) -> list:
-    """Returns the list of missing required secret field names.
-    jellyfin_* is intentionally excluded — it's only needed for the
-    provider-id fallback lookup, not for the webhook path itself."""
+    """Returns the list of missing required secret field names."""
     return [name for name in REQUIRED_SECRETS if not getattr(cfg, name)]

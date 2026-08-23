@@ -6,10 +6,10 @@ Three loops, all driven by `apps/yarr/apps.yaml` (behaviour) and the
 add-on's Configuration tab (credentials):
 
 1. **Genre discovery** (`tick_discovery`, every `discovery_interval_hours`)
-   — pulls your Trakt recommendations, filters by `genres` + `min_rating`,
-   excludes anything already watched on Trakt / already in Radarr /
-   already suggested before, and adds up to `max_suggestions_per_run`
-   matches to Radarr.
+   — pulls TMDB picks, filters by `genres` + `min_rating`, excludes
+   anything already watched (per Jellyfin's own watch history) /
+   already in Radarr / already suggested before, and adds up to
+   `max_suggestions_per_run` matches to Radarr.
 2. **Surprise rotation** (`tick_surprise_check`, hourly poll against a
    persisted random timestamp between `surprise_min_days` and
    `surprise_max_days` apart) — same filtering, but tags the pick in
@@ -24,26 +24,31 @@ add-on's Configuration tab (credentials):
    elapses to keep it instead. This never touches your regular library
    or the genre auto-adds — only films yArr itself added and tagged.
 
-## Trakt setup
+## TMDB setup
 
-1. Create an API app at https://trakt.tv/oauth/applications (any name;
-   the redirect URI field can be anything — the device-code flow used
-   here doesn't redirect).
-2. Put its Client ID/Secret into this add-on's Configuration tab as
-   `trakt_client_id`/`trakt_client_secret`.
-3. Open the add-on's web UI and click **Connect Trakt** — it displays a
-   code and a URL; visit the URL, enter the code, approve. The UI
-   polls automatically and flips to "Connected" once done.
-4. Tokens are refreshed automatically ~weekly before they expire. If
-   the web UI ever shows "Reconnect needed", your refresh token itself
-   expired (Trakt's are valid ~3 months) — just repeat step 3.
+1. Create a free account at themoviedb.org, then generate an API key
+   (v3 auth) at https://www.themoviedb.org/settings/api.
+2. Put it into this add-on's Configuration tab as `tmdb_api_key`.
 
-## Jellyfin webhook setup
+No OAuth, no device-code flow — that's it. TMDB has no concept of a
+personal watch history, which is why "already watched" exclusion comes
+from Jellyfin instead (see below) rather than from TMDB itself.
 
-yArr never opens its own port for this — Jellyfin posts to a plain
-Home Assistant webhook URL instead, which an automation (installed
-automatically as `/config/packages/yarr.yaml`) relays into an event
-yArr listens for.
+## Jellyfin setup
+
+Jellyfin does two jobs here:
+
+**Watch-history exclusion** — `jellyfin_url`/`jellyfin_api_key` (both
+required) let yArr read your account's own played-movie list, cached
+and resynced every `watched_resync_hours`. On a single-user Jellyfin
+instance, yArr just uses whichever account its API key's own user
+lookup returns first; if you run multiple Jellyfin users, set
+`jellyfin_username` in `apps.yaml` to pick the right one.
+
+**Playback-stop webhook** — yArr never opens its own port for this;
+Jellyfin posts to a plain Home Assistant webhook URL instead, which an
+automation (installed automatically as `/config/packages/yarr.yaml`)
+relays into an event yArr listens for.
 
 1. In Jellyfin, install the **Webhook** plugin (Dashboard → Plugins →
    Catalog).
@@ -55,9 +60,8 @@ yArr listens for.
    `NotificationType`, `ItemType`, `Name`, `PlaybackPercentage`,
    `Provider_tmdb`, `Provider_imdb` — Jellyfin's default template
    usually already does. If your Jellyfin instance's template ever
-   omits the provider IDs, set `jellyfin_url`/`jellyfin_api_key` in
-   this add-on's Configuration tab so yArr can look them up by item id
-   instead.
+   omits the provider IDs, yArr falls back to looking them up via the
+   Jellyfin API directly by item id.
 
 This assumes Jellyfin is on the same network as Home Assistant
 (the automation sets `local_only: true`). If Jellyfin is external,
@@ -67,14 +71,7 @@ the webhook to anything that can reach that URL.
 
 ### Testing the webhook manually
 
-Fire the relay automation directly from HA's Developer Tools →
-Actions, without waiting on a real Jellyfin playback:
-
-```yaml
-action: webhook.trigger  # or POST the JSON below directly to the webhook URL
-```
-
-Simpler: `curl` the webhook URL directly from a device on your network:
+`curl` the webhook URL directly from a device on your network:
 
 ```bash
 curl -X POST '<your HA base URL>/api/webhook/yarr_playback_stop' \
@@ -85,17 +82,17 @@ curl -X POST '<your HA base URL>/api/webhook/yarr_playback_stop' \
 
 ## Troubleshooting
 
-- **Web UI shows "Not configured"** — `radarr_url`/`radarr_api_key` or
-  `trakt_client_id`/`trakt_client_secret` are missing from the
-  Configuration tab. `sensor.yarr_status`'s `missing_secrets`
-  attribute lists exactly which ones.
+- **Web UI shows "Not configured"** — one of `radarr_url`,
+  `radarr_api_key`, `tmdb_api_key`, `jellyfin_url`, `jellyfin_api_key`
+  is missing from the Configuration tab. `sensor.yarr_status`'s
+  `missing_secrets` attribute lists exactly which ones.
 - **apps.yaml edits don't seem to apply** — check the AppDaemon log for
   a parse error; a broken file (e.g. a `!secret` tag — not supported
   here, see below) gets backed up to `apps.yaml.broken` and replaced
   with the template automatically.
 - **Never put API keys in apps.yaml** — AppDaemon's own app-config
   loader has no `secrets.yaml` support, unlike HA core. Use the
-  Configuration tab for all three credential pairs.
+  Configuration tab for all five credential fields.
 - **`dry_run: true`** in `apps.yaml` computes and logs picks without
   ever calling Radarr — useful for checking your genre/rating settings
   before trusting it for real.

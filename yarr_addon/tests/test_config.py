@@ -36,15 +36,14 @@ def test_required_secrets_ok_lists_missing():
     missing = required_secrets_ok(cfg)
     assert "radarr_url" not in missing
     assert "radarr_api_key" in missing
-    assert "trakt_client_id" in missing
-    assert "trakt_client_secret" in missing
-    # jellyfin is optional — never required
-    assert "jellyfin_url" not in missing
-    assert "jellyfin_api_key" not in missing
+    assert "tmdb_api_key" in missing
+    # jellyfin is required now — watch-history exclusion reads it directly
+    assert "jellyfin_url" in missing
+    assert "jellyfin_api_key" in missing
 
 
 def test_required_secrets_ok_empty_when_all_set():
     cfg = build_config({}, {
-        "radarr_url": "u", "radarr_api_key": "k",
-        "trakt_client_id": "i", "trakt_client_secret": "s"})
+        "radarr_url": "u", "radarr_api_key": "k", "tmdb_api_key": "t",
+        "jellyfin_url": "j", "jellyfin_api_key": "jk"})
     assert required_secrets_ok(cfg) == []

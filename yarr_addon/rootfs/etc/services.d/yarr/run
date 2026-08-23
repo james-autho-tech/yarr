@@ -104,8 +104,7 @@ fi
 # Real credentials from the add-on's Configuration tab — written as a
 # small JSON file yarr.py reads at startup, never touching apps.yaml.
 # Passed via env vars (not string-interpolated) to dodge quoting issues.
-for f in radarr_url radarr_api_key jellyfin_url jellyfin_api_key \
-         trakt_client_id trakt_client_secret; do
+for f in radarr_url radarr_api_key jellyfin_url jellyfin_api_key tmdb_api_key; do
     val="$(bashio::config "$f" 2>/dev/null)" || val=""
     if [ "$val" != "null" ] && [ -n "$val" ]; then
         export "YARR_SEC_${f}=${val}"

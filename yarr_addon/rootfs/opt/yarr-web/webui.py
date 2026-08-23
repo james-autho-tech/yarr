@@ -47,9 +47,6 @@ def build_status():
     attrs = status.get("attributes", {})
     return {
         "state": status.get("state", "unknown"),
-        "trakt_status": attrs.get("trakt_status", "unknown"),
-        "user_code": attrs.get("user_code"),
-        "verification_url": attrs.get("verification_url"),
         "suggested_count": attrs.get("suggested_count", 0),
         "surprise_count": attrs.get("surprise_count", 0),
         "next_surprise_at": attrs.get("next_surprise_at"),
@@ -84,13 +81,11 @@ button.secondary{background:#232833;color:var(--ink)}
 button:disabled{opacity:.5;cursor:default}
 code{background:#11141b;padding:2px 6px;border-radius:4px}
 .sub{color:var(--sub);font-size:13px;margin-top:6px}
-.code-big{font-size:28px;font-weight:700;letter-spacing:.05em;margin:8px 0}
 a{color:var(--accent)}
 </style></head><body>
 <header><h1>🏴‍☠️ yArr</h1></header>
 <main>
   <div class="card" id="status-card"></div>
-  <div class="card" id="trakt-card"></div>
   <div class="card" id="surprise-card"></div>
 </main>
 <script>
@@ -98,7 +93,6 @@ async function post(path, body) {
   const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
   return r.json();
 }
-function esc(s){return String(s==null?'':s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 
 async function refresh() {
   const d = await (await fetch('api/status')).json();
@@ -114,30 +108,12 @@ async function refresh() {
     ${(d.missing_secrets && d.missing_secrets.length) ? `<div class="sub">Missing: <code>${d.missing_secrets.join('</code>, <code>')}</code> — set these in the Configuration tab.</div>` : ''}
   `;
 
-  let traktHtml = `<div class="h">Trakt</div>`;
-  if (d.trakt_status === 'connected') {
-    traktHtml += `<span class="badge ok">Connected</span>`;
-  } else if (d.trakt_status === 'awaiting_approval' && d.user_code) {
-    traktHtml += `
-      <div class="sub">Visit <a href="${esc(d.verification_url)}" target="_blank">${esc(d.verification_url)}</a> and enter:</div>
-      <div class="code-big">${esc(d.user_code)}</div>
-      <div class="sub">Checking every few seconds…</div>`;
-  } else if (d.trakt_status === 'expired') {
-    traktHtml += `<span class="badge err">Reconnect needed</span><br><br><button onclick="connectTrakt()">Connect Trakt</button>`;
-  } else if (d.trakt_status === 'not_configured') {
-    traktHtml += `<span class="badge warn">Set trakt_client_id/secret first</span>`;
-  } else {
-    traktHtml += `<button onclick="connectTrakt()">Connect Trakt</button>`;
-  }
-  document.getElementById('trakt-card').innerHTML = traktHtml;
-
   document.getElementById('surprise-card').innerHTML = `
     <div class="h">Surprise me</div>
     <button class="secondary" onclick="surpriseNow()">Surprise Me Now</button>
     <div class="sub">${d.keep_surprise ? 'A pending surprise deletion is currently set to be kept.' : ''}</div>
   `;
 }
-async function connectTrakt(){ await post('api/connect-trakt'); refresh(); }
 async function surpriseNow(){ await post('api/surprise-now'); refresh(); }
 refresh();
 setInterval(refresh, 5000);
@@ -159,10 +135,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         path = self.path.split("?", 1)[0].rstrip("/")
         try:
-            if path.endswith("/api/connect-trakt"):
-                ha_call_service("input_button/press", "input_button.yarr_connect_trakt")
-                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
-            elif path.endswith("/api/surprise-now"):
+            if path.endswith("/api/surprise-now"):
                 ha_call_service("input_button/press", "input_button.yarr_surprise_me_now")
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")
             else:

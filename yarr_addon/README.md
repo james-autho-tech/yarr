@@ -1,12 +1,12 @@
 # yArr
 
 Automated movie discovery, surprise-film rotation and library trimming
-across Trakt/Radarr/Jellyfin, bundling its own AppDaemon runtime.
+across TMDB/Radarr/Jellyfin, bundling its own AppDaemon runtime.
 
-- **Genre auto-add**: periodically pulls Trakt recommendations filtered
-  by your favourite genres + a minimum rating, excluding anything
-  already watched, already in Radarr, or already suggested before, and
-  adds good matches to Radarr.
+- **Genre auto-add**: periodically pulls TMDB picks filtered by your
+  favourite genres + a minimum rating, excluding anything already
+  watched (per Jellyfin's own watch history), already in Radarr, or
+  already suggested before, and adds good matches to Radarr.
 - **Surprise me**: on a random jittered cadence (roughly every 5–10
   days, configurable), picks one more film the same way, tags it in
   Radarr so it's identifiable, and adds it — plus a manual "Surprise Me
@@ -29,14 +29,10 @@ repository's URL → find "yArr" → Install.
    Radarr root folder/quality profile, etc. — see the comments in the
    shipped template.
 2. In the add-on's **Configuration** tab, set `radarr_url` +
-   `radarr_api_key` and `trakt_client_id` + `trakt_client_secret`
-   (create a Trakt API app at https://trakt.tv/oauth/applications —
-   any redirect URI works, the device-code flow below doesn't use it).
-   `jellyfin_url`/`jellyfin_api_key` are optional — only needed as a
-   fallback if Jellyfin's webhook payload ever omits provider IDs.
-3. Open the add-on's web UI (sidebar panel) and click **Connect
-   Trakt** — it shows a code and a URL; approve it there.
-4. Set up Jellyfin's Webhook plugin to notify yArr when you finish a
+   `radarr_api_key`, `jellyfin_url` + `jellyfin_api_key`, and a free
+   `tmdb_api_key` (create one at
+   https://www.themoviedb.org/settings/api — no OAuth, just an API key).
+3. Set up Jellyfin's Webhook plugin to notify yArr when you finish a
    surprise film — see [DOCS.md](DOCS.md) for the exact steps.
-5. Watch the AppDaemon log for the startup banner, or check the web
+4. Watch the AppDaemon log for the startup banner, or check the web
    UI's status card.

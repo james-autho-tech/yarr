@@ -1,5 +1,5 @@
 """Thin network wrapper around Radarr's REST API v3 — adapter-side,
-not unit tested (see clients/trakt.py's docstring for why)."""
+not unit tested (see clients/tmdb.py's docstring for why)."""
 
 import json
 import urllib.error

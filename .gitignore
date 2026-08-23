@@ -6,5 +6,3 @@ __pycache__/
 # the template, only ever local state on a running install.
 addon_secrets.json
 yarr_state.json
-trakt_tokens.json
-trakt_device_flow.json

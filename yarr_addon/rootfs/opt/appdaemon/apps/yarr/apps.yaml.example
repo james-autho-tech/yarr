@@ -6,7 +6,7 @@
 # loader has no !secret support (a bad !secret tag here silently kills
 # the whole app — see the run script's self-heal). Use this add-on's
 # Configuration tab instead: it's the only place a Radarr/Jellyfin/
-# Trakt key is actually masked and stored safely.
+# TMDB key is actually masked and stored safely.
 # =====================================================================
 
 yarr:
@@ -14,11 +14,12 @@ yarr:
   class: Yarr
 
   # Genres to match for regular ("good film") auto-adds. Case
-  # insensitive, matched against Trakt's own genre vocabulary (e.g.
-  # action, comedy, drama, horror, sci-fi, thriller). Leave empty ([])
-  # to disable the genre filter entirely (rating floor still applies).
+  # insensitive, matched against TMDB's own genre vocabulary (e.g.
+  # action, comedy, drama, horror, science fiction, thriller). Leave
+  # empty ([]) to disable the genre filter entirely (rating floor
+  # still applies).
   genres:
-    - sci-fi
+    - science fiction
     - thriller
     - comedy
 
@@ -47,7 +48,12 @@ yarr:
   completion_threshold_pct: 90
   delete_grace_period_hours: 24
 
-  trakt_history_resync_hours: 24
+  # Which Jellyfin user's watch history counts for "already watched"
+  # exclusion. Leave unset on a single-user Jellyfin instance — yArr
+  # just uses whichever account its API key's own user lookup returns
+  # first.
+  # jellyfin_username: james
+  watched_resync_hours: 24
 
   # If true, discovery/surprise picks are computed and logged but never
   # actually added to Radarr — useful for checking your genre/rating
