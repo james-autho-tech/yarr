@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - Added TV support: genre auto-add and surprise rotation against
   Sonarr, mirroring the movie feature set. Sonarr identifies shows by
