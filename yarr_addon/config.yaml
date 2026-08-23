@@ -2,6 +2,7 @@ name: yArr
 version: "0.1.0"
 slug: yarr
 description: Automated movie discovery, surprise-film rotation and library trimming across TMDB/Radarr/Jellyfin (bundled AppDaemon)
+url: https://github.com/james-autho-tech/yarr
 arch:
   - aarch64
   - amd64

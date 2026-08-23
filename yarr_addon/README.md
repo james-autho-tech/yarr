@@ -21,8 +21,8 @@ v1 is a Supervisor add-on only — no separate HACS install path.
 
 ## Install
 
-Settings → Add-ons → Add-on Store → ⋮ → **Repositories** → add this
-repository's URL → find "yArr" → Install.
+Settings → Add-ons → Add-on Store → ⋮ → **Repositories** → add
+`https://github.com/james-autho-tech/yarr` → find "yArr" → Install.
 
 1. Start the add-on once so it writes its config templates, then edit
    `/addon_configs/yarr/apps.yaml` for genres, rating floor, cadence,
