@@ -1,20 +1,14 @@
 name: yArr
-version: "0.2.0"
+version: "0.2.2"
 slug: yarr
 description: Automated movie/TV discovery, surprise rotation and library trimming across TMDB/Radarr/Sonarr/Jellyfin, with optional SABnzbd monitoring (bundled AppDaemon)
 url: https://github.com/james-autho-tech/yarr
 arch:
   - aarch64
   - amd64
-  - armv7
-  - armhf
-  - i386
-startup: application
-boot: auto
 init: false
 hassio_api: true
 homeassistant_api: true
-hassio_role: default
 ingress: true
 ingress_port: 8100
 panel_icon: mdi:movie-open-star
@@ -52,12 +46,18 @@ options:
   sabnzbd_url: ""
   sabnzbd_api_key: ""
 schema:
-  radarr_url: url
+  # Plain str, not url — HA's `url` schema type validates the value as
+  # an actual URL even for an optional field, and an empty-string
+  # default (needed so sonarr_url/sabnzbd_url can be left blank to stay
+  # opt-out) fails that check with "expected a URL". str/str? has no
+  # such format validation, matching the pattern this family of add-ons
+  # already uses for its other optional string fields.
+  radarr_url: str
   radarr_api_key: password
-  sonarr_url: url?
+  sonarr_url: str?
   sonarr_api_key: password?
-  jellyfin_url: url
+  jellyfin_url: str
   jellyfin_api_key: password
   tmdb_api_key: password
-  sabnzbd_url: url?
+  sabnzbd_url: str?
   sabnzbd_api_key: password?

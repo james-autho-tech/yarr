@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.2
+
+- Removed `armv7`/`armhf`/`i386` from `arch`/`build.yaml` (deprecated
+  and unsupported as of HA 2025.12) and dropped `startup`/`boot`/
+  `hassio_role` from config.yaml — all three were just restating the
+  schema's own default values, which HA's add-on linter now flags.
+
+## 0.2.1
+
+- Fixed a bad install/update on a fresh config: `sonarr_url` and
+  `sabnzbd_url` were typed `url?` in config.yaml, but HA's `url` schema
+  type validates the value as an actual URL even when the field is
+  optional — an empty-string default (needed so they can be left blank
+  to stay opt-out) failed with "expected a URL". Switched to `str?`,
+  which has no such format check.
+
 ## 0.2.0
 
 - Added TV support: genre auto-add and surprise rotation against
