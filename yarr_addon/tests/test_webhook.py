@@ -1,5 +1,6 @@
-from core.webhook import parse_jellyfin_payload, matches_surprise
-from core.state import SurpriseFilm
+from core.webhook import (parse_jellyfin_payload, matches_surprise,
+                          parse_jellyfin_episode_payload, matches_surprise_show)
+from core.state import SurpriseFilm, SurpriseShow
 
 
 def test_parses_valid_movie_playback_stop():
@@ -52,3 +53,35 @@ def test_no_match_returns_none():
         "NotificationType": "PlaybackStop", "ItemType": "Movie", "Name": "Y",
         "PlaybackPercentage": "99", "Provider_tmdb": "999"})
     assert matches_surprise(event, surprises) is None
+
+
+def test_parses_valid_episode_playback_stop():
+    payload = {"NotificationType": "PlaybackStop", "ItemType": "Episode",
+               "SeriesId": "abc-123", "SeriesName": "Breaking Bad",
+               "PlaybackPercentage": "97"}
+    event = parse_jellyfin_episode_payload(payload)
+    assert event.series_item_id == "abc-123"
+    assert event.series_name == "Breaking Bad"
+    assert event.percentage == 97.0
+
+
+def test_episode_payload_wrong_item_type_returns_none():
+    payload = {"NotificationType": "PlaybackStop", "ItemType": "Movie", "SeriesId": "abc"}
+    assert parse_jellyfin_episode_payload(payload) is None
+
+
+def test_episode_payload_missing_series_id_returns_none():
+    payload = {"NotificationType": "PlaybackStop", "ItemType": "Episode"}
+    assert parse_jellyfin_episode_payload(payload) is None
+
+
+def test_matches_surprise_show_by_tvdb_id():
+    show = SurpriseShow(tvdb_id=12345, title="Breaking Bad")
+    surprises_shows = {"12345": show}
+    assert matches_surprise_show(12345, surprises_shows) is show
+
+
+def test_matches_surprise_show_no_match():
+    surprises_shows = {"1": SurpriseShow(tvdb_id=1, title="X")}
+    assert matches_surprise_show(999, surprises_shows) is None
+    assert matches_surprise_show(None, surprises_shows) is None

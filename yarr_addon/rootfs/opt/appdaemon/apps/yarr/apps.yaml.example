@@ -5,19 +5,22 @@
 # Do NOT put API keys/credentials here — AppDaemon's own apps.yaml
 # loader has no !secret support (a bad !secret tag here silently kills
 # the whole app — see the run script's self-heal). Use this add-on's
-# Configuration tab instead: it's the only place a Radarr/Jellyfin/
-# TMDB key is actually masked and stored safely.
+# Configuration tab instead: it's the only place a Radarr/Sonarr/
+# Jellyfin/TMDB/SABnzbd key is actually masked and stored safely.
 # =====================================================================
 
 yarr:
   module: yarr
   class: Yarr
 
+  # --- Movies (Radarr) ---
+
   # Genres to match for regular ("good film") auto-adds. Case
   # insensitive, matched against TMDB's own genre vocabulary (e.g.
   # action, comedy, drama, horror, science fiction, thriller). Leave
   # empty ([]) to disable the genre filter entirely (rating floor
-  # still applies).
+  # still applies). Ignored if learn_genres_from_library is true and
+  # your library has yielded a learned list — see below.
   genres:
     - science fiction
     - thriller
@@ -41,21 +44,60 @@ yarr:
   surprise_max_days: 10
   surprise_tag: yarr-surprise
 
-  # A surprise film is only ever deleted once Jellyfin reports it
+  # --- TV (Sonarr) — entirely opt-in: only runs once sonarr_url and
+  # sonarr_api_key are set in the Configuration tab. Leave this whole
+  # section as-is for a movies-only install. ---
+
+  tv_genres:
+    - science fiction
+    - comedy
+  tv_min_rating: 7.0
+  tv_discovery_interval_hours: 24
+  tv_max_suggestions_per_run: 3
+
+  sonarr_root_folder: /tv
+  sonarr_quality_profile_name: HD-1080p
+  # Only sent to Sonarr if set — Sonarr v4 dropped Language Profiles,
+  # so leave this unset unless you're on Sonarr v3 and it complains.
+  # sonarr_language_profile_id: 1
+
+  tv_surprise_enabled: true
+  # tv_surprise_genres:
+  #   - drama
+  tv_surprise_min_days: 5
+  tv_surprise_max_days: 10
+  tv_surprise_tag: yarr-surprise
+  # A surprise show is only deleted once its LAST episode crosses
+  # completion_threshold_pct — not each episode as you go.
+
+  # --- Shared ---
+
+  # A surprise film/show is only ever deleted once Jellyfin reports it
   # played to at least this percentage, and only after the grace
-  # period below — flip input_boolean.yarr_keep_surprise on before
-  # the grace period elapses to keep it instead.
+  # period below — flip input_boolean.yarr_keep_surprise (or
+  # yarr_keep_surprise_tv for shows) on before the grace period
+  # elapses to keep it instead.
   completion_threshold_pct: 90
   delete_grace_period_hours: 24
 
   # Which Jellyfin user's watch history counts for "already watched"
-  # exclusion. Leave unset on a single-user Jellyfin instance — yArr
-  # just uses whichever account its API key's own user lookup returns
-  # first.
+  # exclusion and for learn_genres_from_library below. Leave unset on
+  # a single-user Jellyfin instance — yArr just uses whichever account
+  # its API key's own user lookup returns first.
   # jellyfin_username: james
   watched_resync_hours: 24
 
+  # When true, ignores genres/tv_genres above and instead learns a
+  # weighted genre profile from what's already in your Jellyfin
+  # library (watched/favourited items, weighted by play count) —
+  # refreshed on the same watched_resync_hours cadence. Falls back to
+  # the lists above if your library hasn't yielded anything yet (e.g.
+  # a brand new Jellyfin instance).
+  learn_genres_from_library: false
+  taste_top_n_genres: 5
+
   # If true, discovery/surprise picks are computed and logged but never
-  # actually added to Radarr — useful for checking your genre/rating
-  # settings are producing sensible picks before trusting it for real.
+  # actually added to Radarr/Sonarr — useful for checking your genre/
+  # rating settings are producing sensible picks before trusting it
+  # for real.
   dry_run: false

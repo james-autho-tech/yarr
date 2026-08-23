@@ -1,7 +1,7 @@
 name: yArr
 version: "0.1.0"
 slug: yarr
-description: Automated movie discovery, surprise-film rotation and library trimming across TMDB/Radarr/Jellyfin (bundled AppDaemon)
+description: Automated movie/TV discovery, surprise rotation and library trimming across TMDB/Radarr/Sonarr/Jellyfin, with optional SABnzbd monitoring (bundled AppDaemon)
 url: https://github.com/james-autho-tech/yarr
 arch:
   - aarch64
@@ -24,29 +24,40 @@ map:
     read_only: false
   - type: homeassistant_config
     read_only: false
-# Real credentials for the three external services — Radarr/Jellyfin API
-# keys and a TMDB API key. AppDaemon's own apps.yaml loader has no
-# !secret support (a bad tag there silently kills the whole app — see
-# the run script's self-heal), so these live here instead, where
-# Supervisor's Configuration tab masks every `password` field and
-# stores it itself. They never touch apps.yaml. Everything non-secret
-# (genres, rating floor, cadence, Radarr root folder/quality profile,
-# surprise tag, grace period) lives in a hand-edited apps.yaml instead
-# — see apps.yaml.example.
+# Real credentials for every external service yArr talks to.
+# AppDaemon's own apps.yaml loader has no !secret support (a bad tag
+# there silently kills the whole app — see the run script's
+# self-heal), so these live here instead, where Supervisor's
+# Configuration tab masks every `password` field and stores it itself.
+# They never touch apps.yaml. Everything non-secret (genres, rating
+# floor, cadence, root folders/quality profiles, surprise tags, grace
+# period) lives in a hand-edited apps.yaml instead — see
+# apps.yaml.example.
 #
-# jellyfin_url/jellyfin_api_key are required (not just an optional
-# webhook fallback) — watch-history exclusion reads Jellyfin's own
+# Required: radarr_url/radarr_api_key, tmdb_api_key, jellyfin_url/
+# jellyfin_api_key (watch-history exclusion reads Jellyfin's own
 # per-user played status directly, since TMDB has no concept of "what
-# have I watched" the way a personal Trakt/Plex account would.
+# have I watched" the way a personal account would).
+# Optional: sonarr_url/sonarr_api_key (TV support — leave blank to run
+# movies-only) and sabnzbd_url/sabnzbd_api_key (read-only queue
+# monitoring — leave blank to skip it entirely).
 options:
   radarr_url: ""
   radarr_api_key: ""
+  sonarr_url: ""
+  sonarr_api_key: ""
   jellyfin_url: ""
   jellyfin_api_key: ""
   tmdb_api_key: ""
+  sabnzbd_url: ""
+  sabnzbd_api_key: ""
 schema:
   radarr_url: url
   radarr_api_key: password
+  sonarr_url: url?
+  sonarr_api_key: password?
   jellyfin_url: url
   jellyfin_api_key: password
   tmdb_api_key: password
+  sabnzbd_url: url?
+  sabnzbd_api_key: password?

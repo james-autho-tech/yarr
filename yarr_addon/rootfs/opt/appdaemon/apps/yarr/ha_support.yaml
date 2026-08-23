@@ -25,18 +25,30 @@ input_boolean:
     name: "yArr: Keep the pending surprise film"
     icon: mdi:heart
     initial: off
+  # Separate from yarr_keep_surprise so a pending movie deletion and a
+  # pending show deletion can't accidentally cross-cancel each other.
+  yarr_keep_surprise_tv:
+    name: "yArr: Keep the pending surprise show"
+    icon: mdi:heart
+    initial: off
 
 input_button:
   yarr_surprise_me_now:
     name: "yArr: Surprise Me Now"
     icon: mdi:dice-multiple
+  # Only useful once Sonarr is configured in the add-on's Configuration
+  # tab — harmless to leave visible either way.
+  yarr_surprise_tv_now:
+    name: "yArr: Surprise Me Now (TV)"
+    icon: mdi:dice-multiple-outline
 
 automation:
   - alias: "yArr Jellyfin playback-stop relay"
     description: >
-      Re-fires Jellyfin's Webhook-plugin PlaybackStop payload as a
-      plain HA event yarr.py subscribes to via listen_event() — see
-      DOCS.md for the Jellyfin-side webhook template this expects.
+      Re-fires Jellyfin's Webhook-plugin PlaybackStop payload (for both
+      Movie and Episode items) as a plain HA event yarr.py subscribes
+      to via listen_event() — see DOCS.md for the Jellyfin-side webhook
+      template this expects.
     mode: queued
     triggers:
       - trigger: webhook

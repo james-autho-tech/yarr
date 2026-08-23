@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Run core test suite (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install pytest
+      - name: Run tests
+        run: python3 -m pytest yarr_addon/tests/ -q
+
+  lint-addon:
+    name: Validate yarr_addon/config.yaml against HA's add-on schema
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Home Assistant Add-on Linter
+        uses: frenck/action-addon-linter@v2
+        with:
+          path: "./yarr_addon"
+
+  syntax-check:
+    name: Python/shell syntax check on every shipped file
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax (ast.parse)
+        run: |
+          for f in yarr_addon/rootfs/opt/appdaemon/apps/yarr/yarr.py \
+                   yarr_addon/rootfs/opt/appdaemon/apps/yarr/core/*.py \
+                   yarr_addon/rootfs/opt/appdaemon/apps/yarr/clients/*.py \
+                   yarr_addon/rootfs/opt/yarr-web/webui.py; do
+            python3 -c "import ast; ast.parse(open('$f').read())" || exit 1
+          done
+      - name: Shell syntax (bash -n)
+        run: bash -n yarr_addon/rootfs/etc/services.d/yarr/run
+      - name: YAML syntax on shipped config/support files
+        run: |
+          pip install pyyaml
+          for f in repository.yaml yarr_addon/config.yaml \
+                   yarr_addon/rootfs/opt/appdaemon/apps/yarr/apps.yaml.example \
+                   yarr_addon/rootfs/opt/appdaemon/apps/yarr/ha_support.yaml; do
+            python3 -c "import yaml; yaml.safe_load(open('$f'))" || exit 1
+          done

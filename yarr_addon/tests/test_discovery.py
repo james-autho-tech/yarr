@@ -1,11 +1,17 @@
 import random
 
-from core.discovery import Candidate, filter_candidates, pick_surprise
+from core.discovery import Candidate, TVCandidate, filter_candidates, pick_surprise
 
 
 def make(tmdb_id, rating=8.0, genres=("sci-fi",)):
     return Candidate(tmdb_id=tmdb_id, imdb_id=f"tt{tmdb_id}", title=f"Film {tmdb_id}",
                       year=2020, genres=list(genres), rating=rating)
+
+
+def make_tv(tvdb_id, tmdb_id=None, rating=8.0, genres=("drama",)):
+    return TVCandidate(tmdb_id=tmdb_id or tvdb_id * 100, tvdb_id=tvdb_id,
+                        imdb_id=f"tt{tvdb_id}", title=f"Show {tvdb_id}",
+                        year=2020, genres=list(genres), rating=rating)
 
 
 def test_rating_floor_excludes_low_rated():
@@ -51,3 +57,18 @@ def test_pick_surprise_returns_none_when_pool_empty():
     cands = [make(1), make(2)]
     pick = pick_surprise(cands, exclude_tmdb_ids={1, 2}, rng=random.Random(1))
     assert pick is None
+
+
+def test_filter_candidates_tv_uses_tvdb_id_as_key():
+    cands = [make_tv(101), make_tv(102), make_tv(103), make_tv(104)]
+    out = filter_candidates(cands, allowed_genres=[], min_rating=0,
+                             watched_tmdb_ids={101}, radarr_tmdb_ids={102},
+                             already_suggested_tmdb_ids={103}, key="tvdb_id")
+    assert [c.tvdb_id for c in out] == [104]
+
+
+def test_pick_surprise_tv_uses_tvdb_id_as_key():
+    cands = [make_tv(101), make_tv(102), make_tv(103)]
+    rng = random.Random(42)
+    pick = pick_surprise(cands, exclude_tmdb_ids={101, 102}, rng=rng, key="tvdb_id")
+    assert pick.tvdb_id == 103

@@ -1,5 +1,6 @@
 *.pyc
 __pycache__/
+.pytest_cache/
 *.bak
 
 # Runtime state/secrets yarr.py writes next to itself — never part of

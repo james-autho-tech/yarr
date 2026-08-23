@@ -45,6 +45,8 @@ def build_status():
     states = ha_get_all_states()
     status = states.get("sensor.yarr_status") or {}
     attrs = status.get("attributes", {})
+    sab = states.get("sensor.yarr_sabnzbd_status") or {}
+    sab_attrs = sab.get("attributes", {})
     return {
         "state": status.get("state", "unknown"),
         "suggested_count": attrs.get("suggested_count", 0),
@@ -53,6 +55,17 @@ def build_status():
         "missing_secrets": attrs.get("missing_secrets", []),
         "enabled": is_on(states.get("input_boolean.yarr_enable")),
         "keep_surprise": is_on(states.get("input_boolean.yarr_keep_surprise")),
+        "tv_enabled": attrs.get("tv_enabled", False),
+        "suggested_shows_count": attrs.get("suggested_shows_count", 0),
+        "surprise_shows_count": attrs.get("surprise_shows_count", 0),
+        "next_tv_surprise_at": attrs.get("next_tv_surprise_at"),
+        "keep_surprise_tv": is_on(states.get("input_boolean.yarr_keep_surprise_tv")),
+        "sabnzbd_enabled": attrs.get("sabnzbd_enabled", False),
+        "sabnzbd_status": sab.get("state", "unknown"),
+        "sabnzbd_speed_kbps": sab_attrs.get("speed_kbps", 0),
+        "sabnzbd_size_left": sab_attrs.get("size_left", ""),
+        "sabnzbd_eta": sab_attrs.get("eta", ""),
+        "sabnzbd_queue_count": sab_attrs.get("queue_count", 0),
     }
 
 
@@ -87,6 +100,8 @@ a{color:var(--accent)}
 <main>
   <div class="card" id="status-card"></div>
   <div class="card" id="surprise-card"></div>
+  <div class="card" id="tv-card" style="display:none"></div>
+  <div class="card" id="sabnzbd-card" style="display:none"></div>
 </main>
 <script>
 async function post(path, body) {
@@ -109,12 +124,46 @@ async function refresh() {
   `;
 
   document.getElementById('surprise-card').innerHTML = `
-    <div class="h">Surprise me</div>
+    <div class="h">Surprise me (movies)</div>
     <button class="secondary" onclick="surpriseNow()">Surprise Me Now</button>
     <div class="sub">${d.keep_surprise ? 'A pending surprise deletion is currently set to be kept.' : ''}</div>
   `;
+
+  const tvCard = document.getElementById('tv-card');
+  if (d.tv_enabled) {
+    tvCard.style.display = '';
+    tvCard.innerHTML = `
+      <div class="h">TV (Sonarr)</div>
+      <div class="grid">
+        <div class="tile"><div class="lbl">Suggested shows</div><div class="val">${d.suggested_shows_count}</div></div>
+        <div class="tile"><div class="lbl">Surprise shows tracked</div><div class="val">${d.surprise_shows_count}</div></div>
+        <div class="tile"><div class="lbl">Next TV surprise</div><div class="val" style="font-size:13px">${d.next_tv_surprise_at ? new Date(d.next_tv_surprise_at).toLocaleString() : '—'}</div></div>
+      </div>
+      <br><button class="secondary" onclick="surpriseTvNow()">Surprise Me Now (TV)</button>
+      <div class="sub">${d.keep_surprise_tv ? 'A pending surprise show deletion is currently set to be kept.' : ''}</div>
+    `;
+  } else {
+    tvCard.style.display = 'none';
+  }
+
+  const sabCard = document.getElementById('sabnzbd-card');
+  if (d.sabnzbd_enabled) {
+    sabCard.style.display = '';
+    sabCard.innerHTML = `
+      <div class="h">SABnzbd</div>
+      <div class="grid">
+        <div class="tile"><div class="lbl">Status</div><div class="val" style="font-size:16px">${d.sabnzbd_status}</div></div>
+        <div class="tile"><div class="lbl">Speed</div><div class="val" style="font-size:16px">${(d.sabnzbd_speed_kbps||0).toFixed(0)} KB/s</div></div>
+        <div class="tile"><div class="lbl">Queue</div><div class="val">${d.sabnzbd_queue_count}</div></div>
+        <div class="tile"><div class="lbl">ETA</div><div class="val" style="font-size:16px">${d.sabnzbd_eta || '—'}</div></div>
+      </div>
+    `;
+  } else {
+    sabCard.style.display = 'none';
+  }
 }
 async function surpriseNow(){ await post('api/surprise-now'); refresh(); }
+async function surpriseTvNow(){ await post('api/surprise-tv-now'); refresh(); }
 refresh();
 setInterval(refresh, 5000);
 </script>
@@ -137,6 +186,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             if path.endswith("/api/surprise-now"):
                 ha_call_service("input_button/press", "input_button.yarr_surprise_me_now")
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/surprise-tv-now"):
+                ha_call_service("input_button/press", "input_button.yarr_surprise_tv_now")
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")
