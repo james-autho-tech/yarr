@@ -1,0 +1,52 @@
+# =====================================================================
+# yArr — HA-side support. Save as /config/packages/yarr.yaml
+# (needs `homeassistant: packages: !include_dir_named packages`)
+#
+# Why this can't be in the AppDaemon package:
+# - input_boolean/input_button must be real HA helpers to be toggleable
+#   from the UI/dashboards, not just AppDaemon-set virtual states
+# - Jellyfin's Webhook plugin needs a plain, externally-POSTable URL;
+#   Supervisor's Ingress proxy is authenticated and not reachable that
+#   way, so HA core's own `webhook` automation trigger does the job
+#   instead — see DOCS.md for the Jellyfin-side setup this expects.
+#
+# There is no deadman-switch watchdog here: a stuck AppDaemon just
+# means stale recommendations or a delayed deletion, nothing
+# physically unsafe to revert — the delete grace-period poll (yarr.py's
+# tick_delete_guard) is itself already restart-safe.
+# =====================================================================
+
+input_boolean:
+  yarr_enable:
+    name: yArr Engine Master Switch
+    icon: mdi:movie-open-play
+    initial: on
+  yarr_keep_surprise:
+    name: "yArr: Keep the pending surprise film"
+    icon: mdi:heart
+    initial: off
+
+input_button:
+  yarr_connect_trakt:
+    name: "yArr: Connect Trakt"
+    icon: mdi:link-variant
+  yarr_surprise_me_now:
+    name: "yArr: Surprise Me Now"
+    icon: mdi:dice-multiple
+
+automation:
+  - alias: "yArr Jellyfin playback-stop relay"
+    description: >
+      Re-fires Jellyfin's Webhook-plugin PlaybackStop payload as a
+      plain HA event yarr.py subscribes to via listen_event() — see
+      DOCS.md for the Jellyfin-side webhook template this expects.
+    mode: queued
+    triggers:
+      - trigger: webhook
+        webhook_id: yarr_playback_stop
+        local_only: true
+        allowed_methods: [POST]
+    actions:
+      - event: yarr_jellyfin_webhook
+        event_data:
+          payload: "{{ trigger.json }}"

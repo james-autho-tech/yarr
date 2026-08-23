@@ -1,0 +1,55 @@
+# =====================================================================
+# yArr — behavioural config. Edit this in place at
+# /addon_configs/yarr/apps.yaml (persists across add-on updates).
+#
+# Do NOT put API keys/credentials here — AppDaemon's own apps.yaml
+# loader has no !secret support (a bad !secret tag here silently kills
+# the whole app — see the run script's self-heal). Use this add-on's
+# Configuration tab instead: it's the only place a Radarr/Jellyfin/
+# Trakt key is actually masked and stored safely.
+# =====================================================================
+
+yarr:
+  module: yarr
+  class: Yarr
+
+  # Genres to match for regular ("good film") auto-adds. Case
+  # insensitive, matched against Trakt's own genre vocabulary (e.g.
+  # action, comedy, drama, horror, sci-fi, thriller). Leave empty ([])
+  # to disable the genre filter entirely (rating floor still applies).
+  genres:
+    - sci-fi
+    - thriller
+    - comedy
+
+  min_rating: 7.0
+  discovery_interval_hours: 24
+  max_suggestions_per_run: 3
+
+  radarr_root_folder: /movies
+  radarr_quality_profile_name: HD-1080p
+  radarr_minimum_availability: announced
+
+  # The "randomly treat me to a film" loop. surprise_genres defaults to
+  # the same list as `genres` above if left unset — set it separately
+  # only if you want surprises to draw from a different pool.
+  surprise_enabled: true
+  # surprise_genres:
+  #   - horror
+  surprise_min_days: 5
+  surprise_max_days: 10
+  surprise_tag: yarr-surprise
+
+  # A surprise film is only ever deleted once Jellyfin reports it
+  # played to at least this percentage, and only after the grace
+  # period below — flip input_boolean.yarr_keep_surprise on before
+  # the grace period elapses to keep it instead.
+  completion_threshold_pct: 90
+  delete_grace_period_hours: 24
+
+  trakt_history_resync_hours: 24
+
+  # If true, discovery/surprise picks are computed and logged but never
+  # actually added to Radarr — useful for checking your genre/rating
+  # settings are producing sensible picks before trusting it for real.
+  dry_run: false

@@ -1,0 +1,48 @@
+name: yArr
+version: "0.1.0"
+slug: yarr
+description: Automated movie discovery, surprise-film rotation and library trimming across Trakt/Radarr/Jellyfin (bundled AppDaemon)
+arch:
+  - aarch64
+  - amd64
+  - armv7
+  - armhf
+  - i386
+startup: application
+boot: auto
+init: false
+hassio_api: true
+homeassistant_api: true
+hassio_role: default
+ingress: true
+ingress_port: 8100
+panel_icon: mdi:movie-open-star
+panel_title: yArr
+map:
+  - type: addon_config
+    read_only: false
+  - type: homeassistant_config
+    read_only: false
+# Real credentials for the three external services — Radarr/Jellyfin API
+# keys and the Trakt app's client id/secret. AppDaemon's own apps.yaml
+# loader has no !secret support (a bad tag there silently kills the
+# whole app — see the run script's self-heal), so these live here
+# instead, where Supervisor's Configuration tab masks every `password`
+# field and stores it itself. They never touch apps.yaml. Everything
+# non-secret (genres, rating floor, cadence, Radarr root folder/quality
+# profile, surprise tag, grace period) lives in a hand-edited apps.yaml
+# instead — see apps.yaml.example.
+options:
+  radarr_url: ""
+  radarr_api_key: ""
+  jellyfin_url: ""
+  jellyfin_api_key: ""
+  trakt_client_id: ""
+  trakt_client_secret: ""
+schema:
+  radarr_url: url
+  radarr_api_key: password
+  jellyfin_url: url?
+  jellyfin_api_key: password?
+  trakt_client_id: password
+  trakt_client_secret: password

@@ -1,0 +1,67 @@
+"""Thin network wrapper around Radarr's REST API v3 — adapter-side,
+not unit tested (see clients/trakt.py's docstring for why)."""
+
+import json
+import urllib.error
+import urllib.request
+
+
+class RadarrError(Exception):
+    pass
+
+
+class RadarrClient:
+    def __init__(self, url, api_key):
+        self.url = (url or "").rstrip("/")
+        self.api_key = api_key
+
+    def _headers(self):
+        return {"X-Api-Key": self.api_key, "Content-Type": "application/json"}
+
+    def _request(self, method, path, body=None, timeout=15):
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(
+            f"{self.url}/api/v3{path}", method=method, data=data, headers=self._headers())
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                raw = resp.read()
+                return resp.status, (json.loads(raw) if raw else None)
+        except urllib.error.HTTPError as exc:
+            raise RadarrError(f"{method} {path} failed: HTTP {exc.code}") from exc
+
+    def get_library_tmdb_ids(self) -> set:
+        _, body = self._request("GET", "/movie")
+        return {m["tmdbId"] for m in (body or [])}
+
+    def resolve_quality_profile_id(self, name: str) -> int:
+        _, body = self._request("GET", "/qualityprofile")
+        for p in body or []:
+            if p.get("name") == name:
+                return p["id"]
+        raise RadarrError(f"No Radarr quality profile named {name!r}")
+
+    def ensure_tag(self, label: str) -> int:
+        _, body = self._request("GET", "/tag")
+        for t in body or []:
+            if t.get("label") == label:
+                return t["id"]
+        _, created = self._request("POST", "/tag", {"label": label})
+        return created["id"]
+
+    def add_movie(self, candidate, *, root_folder, quality_profile_id,
+                  tag_ids=None, minimum_availability="announced") -> int:
+        body = {
+            "tmdbId": candidate.tmdb_id,
+            "title": candidate.title,
+            "qualityProfileId": quality_profile_id,
+            "rootFolderPath": root_folder,
+            "monitored": True,
+            "minimumAvailability": minimum_availability,
+            "tags": tag_ids or [],
+            "addOptions": {"searchForMovie": True},
+        }
+        _, created = self._request("POST", "/movie", body)
+        return created["id"]
+
+    def delete_movie(self, movie_id: int, delete_files: bool = True) -> None:
+        self._request("DELETE", f"/movie/{movie_id}?deleteFiles={'true' if delete_files else 'false'}")

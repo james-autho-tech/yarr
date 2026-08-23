@@ -1,0 +1,180 @@
+#!/usr/bin/with-contenv bashio
+# ==============================================================================
+# Starts yArr's bundled AppDaemon instance.
+# ==============================================================================
+
+CONFIG_DIR=/config
+
+# config.yaml's version is the single source of truth — yarr.py reads
+# it via this env var instead of keeping its own separate constant.
+export YARR_VERSION="$(bashio::addon.version 2>/dev/null)" || true
+
+mkdir -p "${CONFIG_DIR}/apps/yarr"
+
+YARR_YAML="${CONFIG_DIR}/apps/yarr/apps.yaml"
+
+if [ ! -f "$YARR_YAML" ]; then
+    bashio::log.info "No apps.yaml in addon_config yet — copying the template."
+    bashio::log.warning "Edit ${YARR_YAML} before trusting anything it adds to Radarr."
+    cp /opt/appdaemon/apps/yarr/apps.yaml.example "$YARR_YAML"
+else
+    # AppDaemon silently fails to load the whole app if this file
+    # doesn't parse (e.g. an unsupported !secret tag — there is no
+    # secrets.yaml support in AppDaemon's app-config loader), with
+    # nothing but "Failed to read file" in the log to go on. Validate
+    # it ourselves first so a broken file can't sit there forever.
+    YAML_ERR="$(python3 -c "
+import sys, yaml
+try:
+    yaml.safe_load(open('$YARR_YAML'))
+except Exception as exc:
+    print(exc)
+    sys.exit(1)
+" 2>&1)" || true
+    if [ -n "$YAML_ERR" ]; then
+        bashio::log.error "apps.yaml failed to parse: ${YAML_ERR}"
+        bashio::log.error "Backing it up to apps.yaml.broken and restoring the template so the engine can start — re-apply your settings to the fresh copy."
+        cp "$YARR_YAML" "${YARR_YAML}.broken"
+        cp /opt/appdaemon/apps/yarr/apps.yaml.example "$YARR_YAML"
+    fi
+fi
+
+if [ ! -f "${CONFIG_DIR}/secrets.yaml" ]; then
+    touch "${CONFIG_DIR}/secrets.yaml"
+fi
+
+# yarr.py, core/ and clients/ always come from the image (update by
+# installing a new add-on version); apps.yaml and the persisted state/
+# token JSON files persist in addon_config.
+cp /opt/appdaemon/apps/yarr/yarr.py "${CONFIG_DIR}/apps/yarr/yarr.py"
+rm -rf "${CONFIG_DIR}/apps/yarr/core"
+cp -r /opt/appdaemon/apps/yarr/core "${CONFIG_DIR}/apps/yarr/core"
+rm -rf "${CONFIG_DIR}/apps/yarr/clients"
+cp -r /opt/appdaemon/apps/yarr/clients "${CONFIG_DIR}/apps/yarr/clients"
+
+# ha_support.yaml (helpers + the Jellyfin webhook-relay automation) has
+# to live in HA core, not AppDaemon — input_boolean/input_button must be
+# real HA helpers to be toggleable from the UI, and Jellyfin's webhook
+# plugin needs a plain externally-POSTable URL that only HA core's own
+# webhook trigger can provide (Supervisor's Ingress proxy is
+# authenticated and not reachable that way). Shipped file, reset from
+# the image every start — not something to hand-edit. Needs the
+# homeassistant_config:rw map entry in config.yaml.
+HA_CONFIG_DIR=""
+for candidate in /homeassistant_config /homeassistant/config; do
+    if [ -d "$candidate" ]; then
+        HA_CONFIG_DIR="$candidate"
+        bashio::log.info "HA config directory found at ${candidate}"
+        break
+    fi
+done
+if [ -n "$HA_CONFIG_DIR" ]; then
+    mkdir -p "${HA_CONFIG_DIR}/packages"
+    HA_PKG="${HA_CONFIG_DIR}/packages/yarr.yaml"
+    OLD_SUM="$(sha256sum "$HA_PKG" 2>/dev/null | cut -d' ' -f1)" || OLD_SUM=""
+    cp /opt/appdaemon/apps/yarr/ha_support.yaml "$HA_PKG"
+    NEW_SUM="$(sha256sum "$HA_PKG" 2>/dev/null | cut -d' ' -f1)" || NEW_SUM=""
+    if [ "$OLD_SUM" != "$NEW_SUM" ]; then
+        bashio::log.info "packages/yarr.yaml (helpers + webhook relay) installed/updated — reloading HA to apply it."
+        python3 - <<'PYEOF' || true
+import json
+import os
+import urllib.error
+import urllib.request
+
+token = os.environ["SUPERVISOR_TOKEN"]
+for domain, service in (("automation", "reload"), ("input_boolean", "reload"),
+                         ("input_button", "reload")):
+    req = urllib.request.Request(
+        f"http://supervisor/core/api/services/{domain}/{service}",
+        method="POST", data=b"{}",
+        headers={"Authorization": f"Bearer {token}",
+                 "Content-Type": "application/json"})
+    try:
+        urllib.request.urlopen(req, timeout=10)
+        print(f"Reloaded {domain}.{service}")
+    except (urllib.error.URLError, TimeoutError) as exc:
+        print(f"Could not reload {domain}.{service}: {exc}")
+PYEOF
+    fi
+else
+    bashio::log.warning "HA config directory not mounted (homeassistant_config:rw) — helpers/webhook relay were not installed. Re-approve this add-on's permissions (Info tab) and restart it, or set it up manually per DOCS.md."
+fi
+
+# Real credentials from the add-on's Configuration tab — written as a
+# small JSON file yarr.py reads at startup, never touching apps.yaml.
+# Passed via env vars (not string-interpolated) to dodge quoting issues.
+for f in radarr_url radarr_api_key jellyfin_url jellyfin_api_key \
+         trakt_client_id trakt_client_secret; do
+    val="$(bashio::config "$f" 2>/dev/null)" || val=""
+    if [ "$val" != "null" ] && [ -n "$val" ]; then
+        export "YARR_SEC_${f}=${val}"
+    fi
+done
+python3 - "${CONFIG_DIR}" <<'PYEOF' || true
+import json
+import os
+import sys
+
+config_dir = sys.argv[1]
+prefix = "YARR_SEC_"
+secrets = {k[len(prefix):]: v for k, v in os.environ.items() if k.startswith(prefix)}
+path = os.path.join(config_dir, "apps", "yarr", "addon_secrets.json")
+with open(path, "w") as f:
+    json.dump(secrets, f)
+os.chmod(path, 0o600)
+PYEOF
+
+# AppDaemon requires latitude/longitude/elevation/time_zone up front —
+# fetch them from HA core's own config via the Supervisor API proxy
+# rather than hardcoding, with a short retry in case core isn't ready.
+if ! python3 - "${CONFIG_DIR}" <<'PYEOF'
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+
+config_dir = sys.argv[1]
+token = os.environ["SUPERVISOR_TOKEN"]
+req = urllib.request.Request(
+    "http://supervisor/core/api/config",
+    headers={"Authorization": f"Bearer {token}"})
+
+core = None
+for attempt in range(12):
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            core = json.load(resp)
+        break
+    except (urllib.error.URLError, TimeoutError) as exc:
+        print(f"Waiting for HA core API ({exc})...", file=sys.stderr)
+        time.sleep(5)
+
+if core is None:
+    print("Could not reach HA core API after 60s", file=sys.stderr)
+    sys.exit(1)
+
+appdaemon_yaml = f"""appdaemon:
+  latitude: {core['latitude']}
+  longitude: {core['longitude']}
+  elevation: {core['elevation']}
+  time_zone: {core['time_zone']}
+  plugins:
+    HASS:
+      type: hass
+      ha_url: http://supervisor/core
+      token: {token}
+"""
+with open(os.path.join(config_dir, "appdaemon.yaml"), "w") as f:
+    f.write(appdaemon_yaml)
+PYEOF
+then
+    bashio::log.error "Failed to fetch HA core config — cannot start AppDaemon."
+    exit 1
+fi
+
+bashio::log.info "Starting AppDaemon..."
+cd "${CONFIG_DIR}" || exit 1
+exec appdaemon -c "${CONFIG_DIR}"

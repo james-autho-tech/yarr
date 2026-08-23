@@ -1,0 +1,10 @@
+*.pyc
+__pycache__/
+*.bak
+
+# Runtime state/secrets yarr.py writes next to itself — never part of
+# the template, only ever local state on a running install.
+addon_secrets.json
+yarr_state.json
+trakt_tokens.json
+trakt_device_flow.json
