@@ -92,6 +92,12 @@ class YarrState:
     learned_genres: list = field(default_factory=list)
     learned_tv_genres: list = field(default_factory=list)
 
+    # Rolling human-readable event log (additions/surprises/deletions/
+    # errors) for the web UI's Log section — persisted (not just kept
+    # in memory) so a restart doesn't wipe today's activity, capped by
+    # add_log_event() so this file can't grow unbounded.
+    event_log: list = field(default_factory=list)
+
 
 def _film_to_dict(film):
     return asdict(film)
@@ -140,6 +146,7 @@ def load(path: str) -> YarrState:
         watched_tvdb_cache=list(raw.get("watched_tvdb_cache", [])),
         learned_genres=list(raw.get("learned_genres", [])),
         learned_tv_genres=list(raw.get("learned_tv_genres", [])),
+        event_log=list(raw.get("event_log", [])),
     )
 
 
@@ -157,6 +164,7 @@ def save(state: YarrState, path: str) -> None:
         "watched_tvdb_cache": state.watched_tvdb_cache,
         "learned_genres": state.learned_genres,
         "learned_tv_genres": state.learned_tv_genres,
+        "event_log": state.event_log,
     }
     try:
         with open(path, "w") as f:
@@ -295,6 +303,17 @@ def due_show_deletions(state: YarrState, now: datetime) -> list:
     from . import delete_guard
     return [show for show in state.surprises_shows.values()
             if show.pending_deletion and delete_guard.is_due(show.pending_deletion, now)]
+
+
+# ------------------------------------------------------------------
+# EVENT LOG
+# ------------------------------------------------------------------
+
+def add_log_event(state: YarrState, message: str, now: datetime,
+                   level: str = "info", limit: int = 50) -> YarrState:
+    entry = {"ts": now.isoformat(), "level": level, "message": message}
+    log = (state.event_log + [entry])[-limit:]
+    return _replace(state, event_log=log)
 
 
 def _replace(state: YarrState, **changes) -> YarrState:

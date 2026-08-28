@@ -32,19 +32,19 @@ class Yarr(hass.Hass):
     # ------------------------------------------------------------------
 
     def initialize(self):
+        self.state_data = core_state.load(STATE_PATH)
+
         try:
             secrets = self._load_json(SECRETS_PATH) or {}
             self.cfg = build_config(self.args, secrets)
         except ConfigError as exc:
-            self.error(f"apps.yaml is invalid: {exc}")
+            self._log_event(f"apps.yaml is invalid: {exc}", level="error")
             self.cfg = build_config({}, {})
 
         self.missing_secrets = required_secrets_ok(self.cfg)
         if self.missing_secrets:
-            self.log(f"Not fully configured — missing: {', '.join(self.missing_secrets)}. "
-                     "Set these in the add-on's Configuration tab.")
-
-        self.state_data = core_state.load(STATE_PATH)
+            self._log_event(f"Not fully configured — missing: {', '.join(self.missing_secrets)}. "
+                             "Set these in the add-on's Configuration tab.", level="warn")
 
         self.tmdb = TMDBClient(self.cfg.tmdb_api_key)
         self.radarr = RadarrClient(self.cfg.radarr_url, self.cfg.radarr_api_key)
@@ -69,9 +69,9 @@ class Yarr(hass.Hass):
             self.run_every(self.tick_sabnzbd_status, "now", 60)
         self.run_every(self.publish_status, "now", 60)
 
-        self.log(f"yArr v{VERSION} started"
-                 f"{' (TV enabled)' if self.cfg.tv_enabled else ''}"
-                 f"{' (SABnzbd monitoring enabled)' if self.cfg.sabnzbd_enabled else ''}.")
+        self._log_event(f"yArr v{VERSION} started"
+                         f"{' (TV enabled)' if self.cfg.tv_enabled else ''}"
+                         f"{' (SABnzbd monitoring enabled)' if self.cfg.sabnzbd_enabled else ''}.")
 
     # ------------------------------------------------------------------
     # ENABLE GATE
@@ -95,6 +95,20 @@ class Yarr(hass.Hass):
 
     def _save_state(self):
         core_state.save(self.state_data, STATE_PATH)
+
+    def _log_event(self, message, level="info"):
+        """Appends to the persisted rolling event log (surfaced in the
+        web UI's Log section) in addition to AppDaemon's own log —
+        persisted so a restart doesn't wipe today's activity, and
+        capped by core_state.add_log_event() so the state file can't
+        grow unbounded."""
+        self.state_data = core_state.add_log_event(
+            self.state_data, message, datetime.now(timezone.utc), level=level)
+        self._save_state()
+        if level == "error":
+            self.error(message)
+        else:
+            self.log(message)
 
     def _jellyfin_user(self):
         if self._jellyfin_user_id is None:
@@ -152,7 +166,7 @@ class Yarr(hass.Hass):
             candidates = self.tmdb.discover(self._effective_genres(), self.cfg.min_rating)
             radarr_ids = self.radarr.get_library_tmdb_ids()
         except (TMDBError, RadarrError, JellyfinError) as exc:
-            self.error(f"tick_discovery failed: {exc}")
+            self._log_event(f"tick_discovery failed: {exc}", level="error")
             return
 
         picks = core_discovery.filter_candidates(
@@ -175,9 +189,9 @@ class Yarr(hass.Hass):
                         quality_profile_id=qp_id,
                         minimum_availability=self.cfg.radarr_minimum_availability)
                 except RadarrError as exc:
-                    self.error(f"Could not add {c.title!r} to Radarr: {exc}")
+                    self._log_event(f"Could not add {c.title!r} to Radarr: {exc}", level="error")
                     continue
-            self.log(f"yArr: added {c.title!r} ({c.year}) — rating {c.rating}")
+            self._log_event(f"Added {c.title!r} ({c.year}) — rating {c.rating}")
             self.state_data = core_state.record_suggestion(self.state_data, core_state.SuggestedFilm(
                 tmdb_id=c.tmdb_id, imdb_id=c.imdb_id, title=c.title, year=c.year, source="genre",
                 decision="added", suggested_at=now.isoformat(), radarr_movie_id=radarr_movie_id))
@@ -205,7 +219,7 @@ class Yarr(hass.Hass):
             candidates = self.tmdb.discover(genres, self.cfg.min_rating)
             radarr_ids = self.radarr.get_library_tmdb_ids()
         except (TMDBError, RadarrError, JellyfinError) as exc:
-            self.error(f"surprise pick failed: {exc}")
+            self._log_event(f"surprise pick failed: {exc}", level="error")
             return
 
         pool = core_discovery.filter_candidates(
@@ -221,8 +235,7 @@ class Yarr(hass.Hass):
         self.state_data.next_surprise_at = core_surprise.next_surprise_time(now, window).isoformat()
 
         if pick is None:
-            self.log("yArr: no surprise candidate matched your filters this time.")
-            self._save_state()
+            self._log_event("No surprise candidate matched your filters this time.")
             return
 
         radarr_movie_id = None
@@ -236,8 +249,7 @@ class Yarr(hass.Hass):
                     quality_profile_id=qp_id, tag_ids=[tag_id],
                     minimum_availability=self.cfg.radarr_minimum_availability)
             except RadarrError as exc:
-                self.error(f"Could not add surprise {pick.title!r} to Radarr: {exc}")
-                self._save_state()
+                self._log_event(f"Could not add surprise {pick.title!r} to Radarr: {exc}", level="error")
                 return
             try:
                 # A surprise film's imdb_id is worth the extra call (unlike
@@ -248,7 +260,7 @@ class Yarr(hass.Hass):
             except TMDBError:
                 pass
 
-        self.log(f"yArr surprise: {pick.title!r} ({pick.year})")
+        self._log_event(f"Surprise: {pick.title!r} ({pick.year})")
         self.state_data = core_state.record_surprise_added(
             self.state_data, tmdb_id=pick.tmdb_id, imdb_id=imdb_id, year=pick.year,
             title=pick.title, radarr_movie_id=radarr_movie_id, now=now)
@@ -269,7 +281,7 @@ class Yarr(hass.Hass):
             candidates = self.tmdb.discover_tv(self._effective_tv_genres(), self.cfg.tv_min_rating)
             sonarr_ids = self.sonarr.get_library_tvdb_ids()
         except (TMDBError, SonarrError, JellyfinError) as exc:
-            self.error(f"tick_tv_discovery failed: {exc}")
+            self._log_event(f"tick_tv_discovery failed: {exc}", level="error")
             return
 
         picks = core_discovery.filter_candidates(
@@ -292,9 +304,9 @@ class Yarr(hass.Hass):
                         quality_profile_id=qp_id,
                         language_profile_id=self.cfg.sonarr_language_profile_id)
                 except SonarrError as exc:
-                    self.error(f"Could not add {c.title!r} to Sonarr: {exc}")
+                    self._log_event(f"Could not add {c.title!r} to Sonarr: {exc}", level="error")
                     continue
-            self.log(f"yArr: added show {c.title!r} ({c.year}) — rating {c.rating}")
+            self._log_event(f"Added show {c.title!r} ({c.year}) — rating {c.rating}")
             self.state_data = core_state.record_suggestion_show(
                 self.state_data, core_state.SuggestedShow(
                     tvdb_id=c.tvdb_id, tmdb_id=c.tmdb_id, imdb_id=c.imdb_id, title=c.title,
@@ -325,7 +337,7 @@ class Yarr(hass.Hass):
             candidates = self.tmdb.discover_tv(genres, self.cfg.tv_min_rating)
             sonarr_ids = self.sonarr.get_library_tvdb_ids()
         except (TMDBError, SonarrError, JellyfinError) as exc:
-            self.error(f"TV surprise pick failed: {exc}")
+            self._log_event(f"TV surprise pick failed: {exc}", level="error")
             return
 
         pool = core_discovery.filter_candidates(
@@ -341,8 +353,7 @@ class Yarr(hass.Hass):
         self.state_data.next_tv_surprise_at = core_surprise.next_surprise_time(now, window).isoformat()
 
         if pick is None:
-            self.log("yArr: no TV surprise candidate matched your filters this time.")
-            self._save_state()
+            self._log_event("No TV surprise candidate matched your filters this time.")
             return
 
         sonarr_series_id = None
@@ -355,11 +366,10 @@ class Yarr(hass.Hass):
                     quality_profile_id=qp_id, tag_ids=[tag_id],
                     language_profile_id=self.cfg.sonarr_language_profile_id)
             except SonarrError as exc:
-                self.error(f"Could not add surprise show {pick.title!r} to Sonarr: {exc}")
-                self._save_state()
+                self._log_event(f"Could not add surprise show {pick.title!r} to Sonarr: {exc}", level="error")
                 return
 
-        self.log(f"yArr TV surprise: {pick.title!r} ({pick.year})")
+        self._log_event(f"TV surprise: {pick.title!r} ({pick.year})")
         self.state_data = core_state.record_surprise_show_added(
             self.state_data, tvdb_id=pick.tvdb_id, tmdb_id=pick.tmdb_id, imdb_id=pick.imdb_id,
             title=pick.title, year=pick.year, sonarr_series_id=sonarr_series_id, now=now)
@@ -394,8 +404,9 @@ class Yarr(hass.Hass):
         self.state_data = core_state.mark_watched(self.state_data, film.tmdb_id, now)
         self.state_data = core_state.schedule_deletion(
             self.state_data, film.tmdb_id, now, self.cfg.delete_grace_period_hours)
-        self._save_state()
         self.set_state("input_boolean.yarr_keep_surprise", state="off")
+        self._log_event(f"Watched {film.title!r} — deleting in "
+                         f"{self.cfg.delete_grace_period_hours:g}h unless kept.")
         self.call_service(
             "persistent_notification/create", title="yArr: surprise film watched",
             message=(f"{film.title} will be deleted in {self.cfg.delete_grace_period_hours:g}h. "
@@ -417,7 +428,8 @@ class Yarr(hass.Hass):
             fully_watched = self.jellyfin.is_series_fully_watched(
                 self._jellyfin_user(), event.series_item_id)
         except JellyfinError as exc:
-            self.error(f"Could not confirm series watched status for {show.title!r}: {exc}")
+            self._log_event(f"Could not confirm series watched status for {show.title!r}: {exc}",
+                             level="error")
             return
         if not fully_watched:
             return
@@ -426,8 +438,9 @@ class Yarr(hass.Hass):
         self.state_data = core_state.mark_show_watched(self.state_data, show.tvdb_id, now)
         self.state_data = core_state.schedule_show_deletion(
             self.state_data, show.tvdb_id, now, self.cfg.delete_grace_period_hours)
-        self._save_state()
         self.set_state("input_boolean.yarr_keep_surprise_tv", state="off")
+        self._log_event(f"Finished {show.title!r} — deleting in "
+                         f"{self.cfg.delete_grace_period_hours:g}h unless kept.")
         self.call_service(
             "persistent_notification/create", title="yArr: surprise show finished",
             message=(f"{show.title} will be deleted in {self.cfg.delete_grace_period_hours:g}h. "
@@ -442,15 +455,15 @@ class Yarr(hass.Hass):
             for film in due:
                 if keep:
                     self.state_data = core_state.cancel_deletion(self.state_data, film.tmdb_id)
-                    self.log(f"yArr: kept {film.title!r} per yarr_keep_surprise.")
+                    self._log_event(f"Kept {film.title!r} — deletion cancelled.")
                     continue
                 if not self.cfg.dry_run and film.radarr_movie_id is not None:
                     try:
                         self.radarr.delete_movie(film.radarr_movie_id)
                     except RadarrError as exc:
-                        self.error(f"Could not delete {film.title!r} from Radarr: {exc}")
+                        self._log_event(f"Could not delete {film.title!r} from Radarr: {exc}", level="error")
                         continue
-                self.log(f"yArr: deleted {film.title!r} after the grace period.")
+                self._log_event(f"Deleted {film.title!r} after the grace period.")
                 self.state_data = core_state.confirm_deleted(self.state_data, film.tmdb_id)
             self.set_state("input_boolean.yarr_keep_surprise", state="off")
 
@@ -461,15 +474,15 @@ class Yarr(hass.Hass):
                 for show in due_shows:
                     if keep_tv:
                         self.state_data = core_state.cancel_show_deletion(self.state_data, show.tvdb_id)
-                        self.log(f"yArr: kept {show.title!r} per yarr_keep_surprise_tv.")
+                        self._log_event(f"Kept {show.title!r} — deletion cancelled.")
                         continue
                     if not self.cfg.dry_run and show.sonarr_series_id is not None:
                         try:
                             self.sonarr.delete_series(show.sonarr_series_id)
                         except SonarrError as exc:
-                            self.error(f"Could not delete {show.title!r} from Sonarr: {exc}")
+                            self._log_event(f"Could not delete {show.title!r} from Sonarr: {exc}", level="error")
                             continue
-                    self.log(f"yArr: deleted {show.title!r} after the grace period.")
+                    self._log_event(f"Deleted {show.title!r} after the grace period.")
                     self.state_data = core_state.confirm_show_deleted(self.state_data, show.tvdb_id)
                 self.set_state("input_boolean.yarr_keep_surprise_tv", state="off")
 
@@ -534,6 +547,7 @@ class Yarr(hass.Hass):
             "learned_genres": self.state_data.learned_genres,
             "recent_suggested": self._recent_suggested(self.state_data.suggested),
             "surprises": self._surprise_rows(self.state_data.surprises),
+            "log": list(reversed(self.state_data.event_log[-30:])),
         }
         if self.cfg.tv_enabled:
             attrs.update({

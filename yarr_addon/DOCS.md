@@ -140,6 +140,18 @@ reorders anything in the queue.
 
 ## Troubleshooting
 
+- **"Surprise Me Now" (or the movie/TV buttons) does nothing** — check
+  the AppDaemon log at startup for:
+  `WARNING: HA config directory not mounted (homeassistant_config:rw) — helpers/webhook relay were not installed`
+  and `Entity input_button.yarr_surprise_me_now not found in the default namespace`.
+  This means Home Assistant's per-add-on **Protection mode** blocked
+  the config write even though `config.yaml` declares it — it's a
+  separate safety gate that has to be disabled manually: Settings →
+  Add-ons → yArr → (enable **Advanced Mode** on your profile first if
+  you don't see it) → turn **Protection mode** off → restart the
+  add-on. The log should then show
+  `packages/yarr.yaml (helpers + webhook relay) installed/updated`
+  instead, and the buttons/toggles will exist in HA.
 - **Web UI shows "Not configured"** — one of `radarr_url`,
   `radarr_api_key`, `tmdb_api_key`, `jellyfin_url`, `jellyfin_api_key`
   is missing from the Configuration tab. `sensor.yarr_status`'s

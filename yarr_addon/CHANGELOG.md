@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.0
+
+- Added a persisted rolling event log (additions, surprises,
+  deletions, kept items, errors) surfaced as a Log section in the web
+  UI — survives restarts, capped at 50 entries.
+- Reworked the web UI's visual design again: true near-black
+  background, pure white text, and one confident bold accent colour
+  used decisively, with larger/bolder type throughout instead of
+  uniformly small text.
+- Documented the real cause of "Surprise Me Now" silently doing
+  nothing on a fresh install: Home Assistant's per-add-on **Protection
+  mode** blocks the `homeassistant_config:rw` write even when
+  config.yaml declares it, so the helper entities (buttons/toggles)
+  never get created until it's turned off manually — see DOCS.md.
+
 ## 0.3.0
 
 - Added `excluded_genres`: a hard veto checked independently of

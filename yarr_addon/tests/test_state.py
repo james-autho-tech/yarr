@@ -145,3 +145,28 @@ def test_save_and_load_roundtrip_includes_shows(tmp_path):
     assert loaded.watched_tvdb_cache == s.watched_tvdb_cache
     assert loaded.learned_genres == ["drama", "comedy"]
     assert loaded.learned_tv_genres == ["thriller"]
+
+
+def test_add_log_event_appends_and_caps():
+    s = state.YarrState()
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    s = state.add_log_event(s, "added Inception", now)
+    assert len(s.event_log) == 1
+    assert s.event_log[0]["message"] == "added Inception"
+    assert s.event_log[0]["level"] == "info"
+
+    for i in range(60):
+        s = state.add_log_event(s, f"event {i}", now + timedelta(minutes=i), limit=50)
+    assert len(s.event_log) == 50
+    assert s.event_log[-1]["message"] == "event 59"
+
+
+def test_add_log_event_persists_through_save_load(tmp_path):
+    s = state.YarrState()
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    s = state.add_log_event(s, "deleted X after grace period", now, level="error")
+
+    path = os.path.join(tmp_path, "yarr_state.json")
+    state.save(s, path)
+    loaded = state.load(path)
+    assert loaded.event_log == s.event_log
