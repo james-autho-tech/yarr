@@ -1,8 +1,16 @@
 # =====================================================================
-# yArr — HA-side support. Save as /config/packages/yarr.yaml
-# (needs `homeassistant: packages: !include_dir_named packages`)
+# yArr — HA-side support, REFERENCE ONLY.
 #
-# Why this can't be in the AppDaemon package:
+# The add-on creates these same helpers and this same automation
+# automatically on every start via HA's Core Config REST API
+# (/api/config/<domain>/config/<id> — see the `run` script) — nothing
+# here needs to be hand-installed. This file exists purely as a
+# readable equivalent, and as a manual fallback: if you'd rather manage
+# it yourself, save this as /config/packages/yarr.yaml (needs
+# `homeassistant: packages: !include_dir_named packages`) and it does
+# the same job, minus the auto-sync-on-update the API path gives you.
+#
+# Why this exists at all rather than being pure AppDaemon:
 # - input_boolean/input_button must be real HA helpers to be toggleable
 #   from the UI/dashboards, not just AppDaemon-set virtual states
 # - Jellyfin's Webhook plugin needs a plain, externally-POSTable URL;

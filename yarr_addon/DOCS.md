@@ -84,7 +84,9 @@ user lookup returns first; if you run multiple Jellyfin users, set
 
 **Playback-stop webhook** — yArr never opens its own port for this;
 Jellyfin posts to a plain Home Assistant webhook URL instead, which an
-automation (installed automatically as `/config/packages/yarr.yaml`)
+automation (created automatically via HA's Config API — see
+[ha_support.yaml](rootfs/opt/appdaemon/apps/yarr/ha_support.yaml) for
+the equivalent YAML, kept only as documentation/manual fallback)
 relays into an event yArr listens for. One webhook handles both movies
 and TV episodes.
 
@@ -104,11 +106,15 @@ and TV episodes.
    provider IDs, yArr falls back to looking them up via the Jellyfin
    API directly by item id.
 
-This assumes Jellyfin is on the same network as Home Assistant
-(the automation sets `local_only: true`). If Jellyfin is external,
-edit `/config/packages/yarr.yaml`'s trigger to `local_only: false` and
-use your HA external URL instead — at your own risk, since that opens
-the webhook to anything that can reach that URL.
+This assumes Jellyfin is on the same network as Home Assistant (the
+automation sets `local_only: true`). If Jellyfin is external, edit the
+`yarr_playback_stop_relay` automation in Settings → Automations to set
+`local_only: false` and use your HA external URL instead — at your own
+risk, since that opens the webhook to anything that can reach that
+URL. (Note: yArr recreates this automation on every add-on start, so a
+manual edit like this gets overwritten on update — if you need this
+permanently, do it in `ha_support.yaml` and switch to the manual
+package-file install instead.)
 
 ### Testing the webhook manually
 
@@ -141,17 +147,14 @@ reorders anything in the queue.
 ## Troubleshooting
 
 - **"Surprise Me Now" (or the movie/TV buttons) does nothing** — check
-  the AppDaemon log at startup for:
-  `WARNING: HA config directory not mounted (homeassistant_config:rw) — helpers/webhook relay were not installed`
-  and `Entity input_button.yarr_surprise_me_now not found in the default namespace`.
-  This means Home Assistant's per-add-on **Protection mode** blocked
-  the config write even though `config.yaml` declares it — it's a
-  separate safety gate that has to be disabled manually: Settings →
-  Add-ons → yArr → (enable **Advanced Mode** on your profile first if
-  you don't see it) → turn **Protection mode** off → restart the
-  add-on. The log should then show
-  `packages/yarr.yaml (helpers + webhook relay) installed/updated`
-  instead, and the buttons/toggles will exist in HA.
+  the AppDaemon log at startup for `Could not sync input_button.*` /
+  `Could not sync automation.*`. Helpers/the webhook automation are
+  created via HA's Core Config API on every start (no filesystem
+  write, no Protection-mode approval needed) — a failure here usually
+  means HA core wasn't fully up yet when the add-on started; restart
+  the add-on once HA itself is confirmed running. You should see
+  `Synced input_boolean.yarr_enable` etc. in the log on a healthy
+  start.
 - **Web UI shows "Not configured"** — one of `radarr_url`,
   `radarr_api_key`, `tmdb_api_key`, `jellyfin_url`, `jellyfin_api_key`
   is missing from the Configuration tab. `sensor.yarr_status`'s

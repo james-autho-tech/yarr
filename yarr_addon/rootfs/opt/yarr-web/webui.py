@@ -174,19 +174,46 @@ table.list tr:last-child td{border-bottom:none}
 .log-msg{color:var(--ink)}
 .log-line.error .log-msg{color:var(--err)}
 .log-line.warn .log-msg{color:var(--warn)}
+
+nav.tabs{display:flex;gap:4px;padding:0 24px;border-bottom:2px solid var(--ink);
+         overflow-x:auto}
+.tab-btn{background:none;border:none;color:var(--sub);font-family:var(--sans);
+         font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:.04em;
+         padding:14px 16px;cursor:pointer;border-bottom:3px solid transparent;
+         margin-bottom:-2px;white-space:nowrap}
+.tab-btn:hover{color:var(--ink)}
+.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-page{display:none}
+.tab-page.active{display:block}
 </style></head><body>
 <header>
   <div class="wordmark">y<span class="hi">Arr</span></div>
   <div class="tagline">Auto-stocks and auto-thins your Radarr/Sonarr library</div>
 </header>
+<nav class="tabs">
+  <button class="tab-btn" data-tab="movies" onclick="selectTab('movies')">Movies</button>
+  <button class="tab-btn" data-tab="tv" id="nav-tv" style="display:none" onclick="selectTab('tv')">TV</button>
+  <button class="tab-btn" data-tab="sabnzbd" id="nav-sabnzbd" style="display:none" onclick="selectTab('sabnzbd')">SABnzbd</button>
+  <button class="tab-btn" data-tab="log" onclick="selectTab('log')">Log</button>
+</nav>
 <main>
   <div id="banner"></div>
-  <section id="movies-section"></section>
-  <section id="tv-section" style="display:none"></section>
-  <section id="sabnzbd-section" style="display:none"></section>
-  <section id="log-section"></section>
+  <section id="movies-section" class="tab-page" data-tab="movies"></section>
+  <section id="tv-section" class="tab-page" data-tab="tv"></section>
+  <section id="sabnzbd-section" class="tab-page" data-tab="sabnzbd"></section>
+  <section id="log-section" class="tab-page" data-tab="log"></section>
 </main>
 <script>
+let currentTab = 'movies';
+try { currentTab = localStorage.getItem('yarr_tab') || 'movies'; } catch (e) {}
+
+function selectTab(tab) {
+  currentTab = tab;
+  try { localStorage.setItem('yarr_tab', tab); } catch (e) {}
+  document.querySelectorAll('.tab-page').forEach(el => el.classList.toggle('active', el.dataset.tab === tab));
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.toggle('active', el.dataset.tab === tab));
+}
+
 async function post(path, body) {
   const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
   return r.json();
@@ -257,9 +284,10 @@ async function refresh() {
     ${surpriseTable(d.surprises)}
   `;
 
+  document.getElementById('nav-tv').style.display = d.tv_enabled ? '' : 'none';
+  if (!d.tv_enabled && currentTab === 'tv') currentTab = 'movies';
   const tvSection = document.getElementById('tv-section');
   if (d.tv_enabled) {
-    tvSection.style.display = '';
     const tvGenreMode = d.learn_genres_from_library
       ? (d.learned_tv_genres && d.learned_tv_genres.length ? 'Learning from your Jellyfin library' : 'Learning enabled, waiting on library data')
       : 'Fixed genre list';
@@ -279,13 +307,12 @@ async function refresh() {
       <div class="section-note" style="margin:16px 0 6px">Tracked surprises</div>
       ${surpriseTable(d.surprise_shows)}
     `;
-  } else {
-    tvSection.style.display = 'none';
   }
 
+  document.getElementById('nav-sabnzbd').style.display = d.sabnzbd_enabled ? '' : 'none';
+  if (!d.sabnzbd_enabled && currentTab === 'sabnzbd') currentTab = 'movies';
   const sabSection = document.getElementById('sabnzbd-section');
   if (d.sabnzbd_enabled) {
-    sabSection.style.display = '';
     const items = d.sabnzbd_items || [];
     sabSection.innerHTML = `
       <div class="section-head"><span class="section-title">SABnzbd</span>
@@ -300,8 +327,6 @@ async function refresh() {
         ${items.map(i => `<tr><td class="title-cell">${esc(i.filename)}</td><td class="year">${(i.percentage||0).toFixed(0)}%</td><td class="year">${esc(i.status)}</td></tr>`).join('')}
       </tbody></table>` : '<div class="empty-row">Queue is empty.</div>'}
     `;
-  } else {
-    sabSection.style.display = 'none';
   }
 
   const log = d.log || [];
@@ -312,6 +337,8 @@ async function refresh() {
         <span class="log-ts">${fmtDate(e.ts)}</span><span class="log-msg">${esc(e.message)}</span>
       </div>`).join('') : '<div class="empty-row">Nothing logged yet.</div>'}
   `;
+
+  selectTab(currentTab);
 }
 async function surpriseNow(){ await post('api/surprise-now'); refresh(); }
 async function surpriseTvNow(){ await post('api/surprise-tv-now'); refresh(); }

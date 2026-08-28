@@ -1,5 +1,5 @@
 name: yArr
-version: "0.4.0"
+version: "0.5.0"
 slug: yarr
 description: Automated movie/TV discovery, surprise rotation and library trimming across TMDB/Radarr/Sonarr/Jellyfin, with optional SABnzbd monitoring (bundled AppDaemon)
 url: https://github.com/james-autho-tech/yarr
@@ -13,10 +13,15 @@ ingress: true
 ingress_port: 8100
 panel_icon: mdi:movie-open-star
 panel_title: yArr
+# No homeassistant_config mount — HA-side helpers/automation are
+# created through the Core Config REST API instead of a written
+# package file (see the `run` script), which needs nothing beyond the
+# hassio_api/homeassistant_api access below. Deliberately avoids the
+# homeassistant_config:rw + Protection-mode dependency: a real install
+# showed that map entry can silently stay unmounted even when
+# correctly declared, blocking the helpers from ever being created.
 map:
   - type: addon_config
-    read_only: false
-  - type: homeassistant_config
     read_only: false
 # Real credentials for every external service yArr talks to.
 # AppDaemon's own apps.yaml loader has no !secret support (a bad tag

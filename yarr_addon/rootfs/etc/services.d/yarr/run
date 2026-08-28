@@ -52,54 +52,63 @@ cp -r /opt/appdaemon/apps/yarr/core "${CONFIG_DIR}/apps/yarr/core"
 rm -rf "${CONFIG_DIR}/apps/yarr/clients"
 cp -r /opt/appdaemon/apps/yarr/clients "${CONFIG_DIR}/apps/yarr/clients"
 
-# ha_support.yaml (helpers + the Jellyfin webhook-relay automation) has
-# to live in HA core, not AppDaemon — input_boolean/input_button must be
-# real HA helpers to be toggleable from the UI, and Jellyfin's webhook
-# plugin needs a plain externally-POSTable URL that only HA core's own
-# webhook trigger can provide (Supervisor's Ingress proxy is
-# authenticated and not reachable that way). Shipped file, reset from
-# the image every start — not something to hand-edit. Needs the
-# homeassistant_config:rw map entry in config.yaml.
-HA_CONFIG_DIR=""
-for candidate in /homeassistant_config /homeassistant/config; do
-    if [ -d "$candidate" ]; then
-        HA_CONFIG_DIR="$candidate"
-        bashio::log.info "HA config directory found at ${candidate}"
-        break
-    fi
-done
-if [ -n "$HA_CONFIG_DIR" ]; then
-    mkdir -p "${HA_CONFIG_DIR}/packages"
-    HA_PKG="${HA_CONFIG_DIR}/packages/yarr.yaml"
-    OLD_SUM="$(sha256sum "$HA_PKG" 2>/dev/null | cut -d' ' -f1)" || OLD_SUM=""
-    cp /opt/appdaemon/apps/yarr/ha_support.yaml "$HA_PKG"
-    NEW_SUM="$(sha256sum "$HA_PKG" 2>/dev/null | cut -d' ' -f1)" || NEW_SUM=""
-    if [ "$OLD_SUM" != "$NEW_SUM" ]; then
-        bashio::log.info "packages/yarr.yaml (helpers + webhook relay) installed/updated — reloading HA to apply it."
-        python3 - <<'PYEOF' || true
+# Helpers (input_boolean/input_button) + the Jellyfin webhook-relay
+# automation are created through HA core's own Config REST API
+# (/api/config/<domain>/config/<id> — the same endpoint Settings >
+# Helpers/Automations uses) rather than by writing a YAML file into
+# /config. This needs nothing beyond the Core API access every add-on
+# already has (hassio_api/homeassistant_api) — no homeassistant_config
+# filesystem mount, and critically no Protection-mode approval, which
+# a real install showed can silently stay blocked even with the map
+# entry correctly declared. Idempotent (POST upserts by id), so this
+# just runs — and re-applies instantly, no HA restart — every boot.
+bashio::log.info "Syncing yArr's HA helpers + webhook-relay automation..."
+python3 - <<'PYEOF' || true
 import json
 import os
 import urllib.error
 import urllib.request
 
 token = os.environ["SUPERVISOR_TOKEN"]
-for domain, service in (("automation", "reload"), ("input_boolean", "reload"),
-                         ("input_button", "reload")):
+BASE = "http://supervisor/core/api/config"
+
+
+def put(domain, key, body):
     req = urllib.request.Request(
-        f"http://supervisor/core/api/services/{domain}/{service}",
-        method="POST", data=b"{}",
-        headers={"Authorization": f"Bearer {token}",
-                 "Content-Type": "application/json"})
+        f"{BASE}/{domain}/config/{key}", method="POST",
+        data=json.dumps(body).encode(),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
     try:
         urllib.request.urlopen(req, timeout=10)
-        print(f"Reloaded {domain}.{service}")
-    except (urllib.error.URLError, TimeoutError) as exc:
-        print(f"Could not reload {domain}.{service}: {exc}")
+        print(f"Synced {domain}.{key}")
+    except (urllib.error.URLError, urllib.error.HTTPError) as exc:
+        print(f"Could not sync {domain}.{key}: {exc}")
+
+
+put("input_boolean", "yarr_enable",
+    {"name": "yArr Engine Master Switch", "icon": "mdi:movie-open-play", "initial": True})
+put("input_boolean", "yarr_keep_surprise",
+    {"name": "yArr: Keep the pending surprise film", "icon": "mdi:heart", "initial": False})
+# Separate from yarr_keep_surprise so a pending movie deletion and a
+# pending show deletion can't accidentally cross-cancel each other.
+put("input_boolean", "yarr_keep_surprise_tv",
+    {"name": "yArr: Keep the pending surprise show", "icon": "mdi:heart", "initial": False})
+put("input_button", "yarr_surprise_me_now",
+    {"name": "yArr: Surprise Me Now", "icon": "mdi:dice-multiple"})
+# Only useful once Sonarr is configured — harmless to leave visible either way.
+put("input_button", "yarr_surprise_tv_now",
+    {"name": "yArr: Surprise Me Now (TV)", "icon": "mdi:dice-multiple-outline"})
+put("automation", "yarr_playback_stop_relay", {
+    "alias": "yArr Jellyfin playback-stop relay",
+    "description": ("Re-fires Jellyfin's Webhook-plugin PlaybackStop payload (Movie or "
+                     "Episode) as a plain HA event yarr.py subscribes to via listen_event() "
+                     "— see DOCS.md for the Jellyfin-side webhook template this expects."),
+    "mode": "queued",
+    "triggers": [{"trigger": "webhook", "webhook_id": "yarr_playback_stop",
+                  "local_only": True, "allowed_methods": ["POST"]}],
+    "actions": [{"event": "yarr_jellyfin_webhook", "event_data": {"payload": "{{ trigger.json }}"}}],
+})
 PYEOF
-    fi
-else
-    bashio::log.warning "HA config directory not mounted (homeassistant_config:rw) — helpers/webhook relay were not installed. Re-approve this add-on's permissions (Info tab) and restart it, or set it up manually per DOCS.md."
-fi
 
 # Real credentials from the add-on's Configuration tab — written as a
 # small JSON file yarr.py reads at startup, never touching apps.yaml.

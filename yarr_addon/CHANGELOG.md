@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.0
+
+- **Dropped the `homeassistant_config` filesystem mount entirely.**
+  Helpers (`input_boolean`/`input_button`) and the Jellyfin
+  webhook-relay automation are now created via HA's Core Config REST
+  API (`/api/config/<domain>/config/<id>` — the same endpoint Settings
+  → Helpers/Automations itself uses) instead of writing a YAML package
+  file. This needs nothing beyond the ordinary Core API access every
+  add-on already has, so it no longer depends on HA's per-add-on
+  **Protection mode**, which a real install showed can silently block
+  the old filesystem write even with the map entry correctly declared.
+  `ha_support.yaml` is kept only as a readable reference / manual
+  fallback, not something the add-on writes anymore.
+- Added tabbed navigation to the web UI (Movies / TV / SABnzbd / Log)
+  instead of one long scrolling page — remembers your last-viewed tab.
+
 ## 0.4.0
 
 - Added a persisted rolling event log (additions, surprises,
