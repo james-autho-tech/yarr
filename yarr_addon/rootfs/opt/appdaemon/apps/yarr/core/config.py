@@ -72,6 +72,10 @@ class YarrConfig:
     # genre lists if your library doesn't yield any (e.g. brand new).
     learn_genres_from_library: bool = False
     taste_top_n_genres: int = 5
+    # Hard veto, checked independently of genres/tv_genres (or a
+    # learned profile) — a title carrying one of these is never
+    # suggested/surprised regardless of anything else matching.
+    excluded_genres: list = field(default_factory=list)
     dry_run: bool = False
 
     # --- addon_secrets.json (config.yaml options — never in apps.yaml) ---
@@ -112,6 +116,7 @@ def build_config(apps_yaml_dict: dict, secrets_dict: dict) -> YarrConfig:
     surprise_genres = _as_genre_list(a, "surprise_genres")
     tv_genres = _as_genre_list(a, "tv_genres") or []
     tv_surprise_genres = _as_genre_list(a, "tv_surprise_genres")
+    excluded_genres = _as_genre_list(a, "excluded_genres") or []
 
     return YarrConfig(
         genres=genres,
@@ -147,6 +152,7 @@ def build_config(apps_yaml_dict: dict, secrets_dict: dict) -> YarrConfig:
         watched_resync_hours=float(a.get("watched_resync_hours", 24.0)),
         learn_genres_from_library=bool(a.get("learn_genres_from_library", False)),
         taste_top_n_genres=int(a.get("taste_top_n_genres", 5)),
+        excluded_genres=excluded_genres,
         dry_run=bool(a.get("dry_run", False)),
 
         radarr_url=str(s.get("radarr_url", "")),

@@ -17,6 +17,7 @@ class SuggestedFilm:
     tmdb_id: int
     imdb_id: str = None
     title: str = ""
+    year: int = None
     source: str = "genre"          # "genre" | "surprise"
     decision: str = "added"         # "added" | "rejected_low_rating" | "rejected_in_radarr" | "rejected_watched"
     suggested_at: str = ""          # ISO8601
@@ -35,6 +36,7 @@ class SurpriseFilm:
     tmdb_id: int
     imdb_id: str = None
     title: str = ""
+    year: int = None
     radarr_movie_id: int = None
     added_at: str = ""
     watched: bool = False
@@ -48,6 +50,7 @@ class SuggestedShow:
     tmdb_id: int = None
     imdb_id: str = None
     title: str = ""
+    year: int = None
     source: str = "genre"
     decision: str = "added"
     suggested_at: str = ""
@@ -60,6 +63,7 @@ class SurpriseShow:
     tmdb_id: int = None
     imdb_id: str = None
     title: str = ""
+    year: int = None
     sonarr_series_id: int = None
     added_at: str = ""
     watched: bool = False
@@ -176,10 +180,10 @@ def record_suggestion(state: YarrState, film: SuggestedFilm) -> YarrState:
 
 
 def record_surprise_added(state: YarrState, *, tmdb_id: int, imdb_id, title: str,
-                           radarr_movie_id: int, now: datetime) -> YarrState:
+                           radarr_movie_id: int, now: datetime, year: int = None) -> YarrState:
     surprises = dict(state.surprises)
     surprises[str(tmdb_id)] = SurpriseFilm(
-        tmdb_id=tmdb_id, imdb_id=imdb_id, title=title,
+        tmdb_id=tmdb_id, imdb_id=imdb_id, title=title, year=year,
         radarr_movie_id=radarr_movie_id, added_at=now.isoformat())
     return _replace(state, surprises=surprises)
 
@@ -242,10 +246,10 @@ def record_suggestion_show(state: YarrState, show: SuggestedShow) -> YarrState:
 
 
 def record_surprise_show_added(state: YarrState, *, tvdb_id: int, tmdb_id, imdb_id, title: str,
-                                sonarr_series_id: int, now: datetime) -> YarrState:
+                                sonarr_series_id: int, now: datetime, year: int = None) -> YarrState:
     surprises_shows = dict(state.surprises_shows)
     surprises_shows[str(tvdb_id)] = SurpriseShow(
-        tvdb_id=tvdb_id, tmdb_id=tmdb_id, imdb_id=imdb_id, title=title,
+        tvdb_id=tvdb_id, tmdb_id=tmdb_id, imdb_id=imdb_id, title=title, year=year,
         sonarr_series_id=sonarr_series_id, added_at=now.isoformat())
     return _replace(state, surprises_shows=surprises_shows)
 

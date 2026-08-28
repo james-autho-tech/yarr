@@ -131,11 +131,11 @@ class Yarr(hass.Hass):
         if self.cfg.learn_genres_from_library:
             movie_items = self.jellyfin.get_watched_items_for_taste(user_id, "Movie")
             self.state_data.learned_genres = core_taste.top_genres(
-                movie_items, top_n=self.cfg.taste_top_n_genres)
+                movie_items, top_n=self.cfg.taste_top_n_genres, exclude=self.cfg.excluded_genres)
             if self.cfg.tv_enabled:
                 show_items = self.jellyfin.get_watched_items_for_taste(user_id, "Series")
                 self.state_data.learned_tv_genres = core_taste.top_genres(
-                    show_items, top_n=self.cfg.taste_top_n_genres)
+                    show_items, top_n=self.cfg.taste_top_n_genres, exclude=self.cfg.excluded_genres)
 
         self._save_state()
 
@@ -161,7 +161,8 @@ class Yarr(hass.Hass):
             min_rating=self.cfg.min_rating,
             watched_tmdb_ids=set(self.state_data.watched_tmdb_cache),
             radarr_tmdb_ids=radarr_ids,
-            already_suggested_tmdb_ids={int(k) for k in self.state_data.suggested})
+            already_suggested_tmdb_ids={int(k) for k in self.state_data.suggested},
+            excluded_genres=self.cfg.excluded_genres)
         picks = picks[: self.cfg.max_suggestions_per_run]
 
         for c in picks:
@@ -178,7 +179,7 @@ class Yarr(hass.Hass):
                     continue
             self.log(f"yArr: added {c.title!r} ({c.year}) — rating {c.rating}")
             self.state_data = core_state.record_suggestion(self.state_data, core_state.SuggestedFilm(
-                tmdb_id=c.tmdb_id, imdb_id=c.imdb_id, title=c.title, source="genre",
+                tmdb_id=c.tmdb_id, imdb_id=c.imdb_id, title=c.title, year=c.year, source="genre",
                 decision="added", suggested_at=now.isoformat(), radarr_movie_id=radarr_movie_id))
         if picks:
             self._save_state()
@@ -212,7 +213,8 @@ class Yarr(hass.Hass):
             watched_tmdb_ids=set(self.state_data.watched_tmdb_cache),
             radarr_tmdb_ids=radarr_ids,
             already_suggested_tmdb_ids={int(k) for k in self.state_data.suggested} |
-                                        {int(k) for k in self.state_data.surprises})
+                                        {int(k) for k in self.state_data.surprises},
+            excluded_genres=self.cfg.excluded_genres)
         pick = core_discovery.pick_surprise(pool, exclude_tmdb_ids=set())
 
         window = core_surprise.SurpriseWindow(self.cfg.surprise_min_days, self.cfg.surprise_max_days)
@@ -248,7 +250,7 @@ class Yarr(hass.Hass):
 
         self.log(f"yArr surprise: {pick.title!r} ({pick.year})")
         self.state_data = core_state.record_surprise_added(
-            self.state_data, tmdb_id=pick.tmdb_id, imdb_id=imdb_id,
+            self.state_data, tmdb_id=pick.tmdb_id, imdb_id=imdb_id, year=pick.year,
             title=pick.title, radarr_movie_id=radarr_movie_id, now=now)
         self._save_state()
         self.call_service("persistent_notification/create", title="yArr surprise",
@@ -277,7 +279,7 @@ class Yarr(hass.Hass):
             watched_tmdb_ids=set(self.state_data.watched_tvdb_cache),
             radarr_tmdb_ids=sonarr_ids,
             already_suggested_tmdb_ids={int(k) for k in self.state_data.suggested_shows},
-            key="tvdb_id")
+            key="tvdb_id", excluded_genres=self.cfg.excluded_genres)
         picks = picks[: self.cfg.tv_max_suggestions_per_run]
 
         for c in picks:
@@ -296,7 +298,7 @@ class Yarr(hass.Hass):
             self.state_data = core_state.record_suggestion_show(
                 self.state_data, core_state.SuggestedShow(
                     tvdb_id=c.tvdb_id, tmdb_id=c.tmdb_id, imdb_id=c.imdb_id, title=c.title,
-                    source="genre", decision="added", suggested_at=now.isoformat(),
+                    year=c.year, source="genre", decision="added", suggested_at=now.isoformat(),
                     sonarr_series_id=sonarr_series_id))
         if picks:
             self._save_state()
@@ -332,7 +334,7 @@ class Yarr(hass.Hass):
             radarr_tmdb_ids=sonarr_ids,
             already_suggested_tmdb_ids={int(k) for k in self.state_data.suggested_shows} |
                                         {int(k) for k in self.state_data.surprises_shows},
-            key="tvdb_id")
+            key="tvdb_id", excluded_genres=self.cfg.excluded_genres)
         pick = core_discovery.pick_surprise(pool, exclude_tmdb_ids=set(), key="tvdb_id")
 
         window = core_surprise.SurpriseWindow(self.cfg.tv_surprise_min_days, self.cfg.tv_surprise_max_days)
@@ -360,7 +362,7 @@ class Yarr(hass.Hass):
         self.log(f"yArr TV surprise: {pick.title!r} ({pick.year})")
         self.state_data = core_state.record_surprise_show_added(
             self.state_data, tvdb_id=pick.tvdb_id, tmdb_id=pick.tmdb_id, imdb_id=pick.imdb_id,
-            title=pick.title, sonarr_series_id=sonarr_series_id, now=now)
+            title=pick.title, year=pick.year, sonarr_series_id=sonarr_series_id, now=now)
         self._save_state()
         self.call_service("persistent_notification/create", title="yArr TV surprise",
                            message=f"Tonight's surprise show: {pick.title} ({pick.year})")
@@ -496,6 +498,28 @@ class Yarr(hass.Hass):
     # STATUS
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _film_status(film):
+        if film.pending_deletion and not film.pending_deletion.keep_requested:
+            return "deleting_soon"
+        if film.watched:
+            return "watched"
+        return "pending_watch"
+
+    def _recent_suggested(self, suggested_dict, limit=8):
+        rows = sorted(suggested_dict.values(), key=lambda f: f.suggested_at, reverse=True)
+        return [{"title": f.title, "year": f.year, "decision": f.decision} for f in rows[:limit]]
+
+    def _surprise_rows(self, surprises_dict):
+        rows = sorted(surprises_dict.values(), key=lambda f: f.added_at, reverse=True)
+        out = []
+        for f in rows:
+            row = {"title": f.title, "year": f.year, "status": self._film_status(f)}
+            if f.pending_deletion:
+                row["delete_at"] = f.pending_deletion.delete_at
+            out.append(row)
+        return out
+
     def publish_status(self, kwargs):
         attrs = {
             "suggested_count": len(self.state_data.suggested),
@@ -504,12 +528,22 @@ class Yarr(hass.Hass):
             "missing_secrets": self.missing_secrets,
             "tv_enabled": self.cfg.tv_enabled,
             "sabnzbd_enabled": self.cfg.sabnzbd_enabled,
+            "learn_genres_from_library": self.cfg.learn_genres_from_library,
+            "excluded_genres": self.cfg.excluded_genres,
+            "effective_genres": self._effective_genres(),
+            "learned_genres": self.state_data.learned_genres,
+            "recent_suggested": self._recent_suggested(self.state_data.suggested),
+            "surprises": self._surprise_rows(self.state_data.surprises),
         }
         if self.cfg.tv_enabled:
             attrs.update({
                 "suggested_shows_count": len(self.state_data.suggested_shows),
                 "surprise_shows_count": len(self.state_data.surprises_shows),
                 "next_tv_surprise_at": self.state_data.next_tv_surprise_at,
+                "effective_tv_genres": self._effective_tv_genres(),
+                "learned_tv_genres": self.state_data.learned_tv_genres,
+                "recent_suggested_shows": self._recent_suggested(self.state_data.suggested_shows),
+                "surprise_shows": self._surprise_rows(self.state_data.surprises_shows),
             })
         self.set_state("sensor.yarr_status",
                         state="Not Configured" if self.missing_secrets else "OK",

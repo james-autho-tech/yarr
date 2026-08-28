@@ -72,3 +72,19 @@ def test_pick_surprise_tv_uses_tvdb_id_as_key():
     rng = random.Random(42)
     pick = pick_surprise(cands, exclude_tmdb_ids={101, 102}, rng=rng, key="tvdb_id")
     assert pick.tvdb_id == 103
+
+
+def test_excluded_genres_vetoes_even_when_allowed_matches():
+    cands = [make(1, genres=("comedy", "horror")), make(2, genres=("comedy",))]
+    out = filter_candidates(cands, allowed_genres=["comedy"], min_rating=0,
+                             watched_tmdb_ids=set(), radarr_tmdb_ids=set(),
+                             already_suggested_tmdb_ids=set(), excluded_genres=["horror"])
+    assert [c.tmdb_id for c in out] == [2]
+
+
+def test_excluded_genres_applies_even_with_no_allowed_list():
+    cands = [make(1, genres=("horror",)), make(2, genres=("comedy",))]
+    out = filter_candidates(cands, allowed_genres=[], min_rating=0,
+                             watched_tmdb_ids=set(), radarr_tmdb_ids=set(),
+                             already_suggested_tmdb_ids=set(), excluded_genres=["horror"])
+    assert [c.tmdb_id for c in out] == [2]

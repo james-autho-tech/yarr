@@ -35,16 +35,26 @@ class TVCandidate:
 
 def filter_candidates(candidates, *, allowed_genres, min_rating,
                        watched_tmdb_ids, radarr_tmdb_ids, already_suggested_tmdb_ids,
-                       key="tmdb_id"):
+                       key="tmdb_id", excluded_genres=None):
     """Empty allowed_genres = no genre filter. Works identically for
     Candidate and TVCandidate — pass key="tvdb_id" for TV, where
-    Sonarr/Jellyfin exclusion sets are naturally TVDB-keyed."""
+    Sonarr/Jellyfin exclusion sets are naturally TVDB-keyed.
+
+    excluded_genres is a hard veto checked independently of
+    allowed_genres — a candidate carrying an excluded genre is dropped
+    even if it also matches an allowed one, and even when
+    allowed_genres is empty ("no genre filter" only ever means no
+    *inclusion* filter, never bypasses an explicit exclusion)."""
     allowed = {g.lower() for g in (allowed_genres or [])}
+    excluded = {g.lower() for g in (excluded_genres or [])}
     out = []
     for c in candidates:
         if c.rating < min_rating:
             continue
-        if allowed and not (allowed & {g.lower() for g in c.genres}):
+        genre_set = {g.lower() for g in c.genres}
+        if excluded and (excluded & genre_set):
+            continue
+        if allowed and not (allowed & genre_set):
             continue
         cid = getattr(c, key)
         if cid in watched_tmdb_ids:

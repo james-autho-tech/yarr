@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.0
+
+- Added `excluded_genres`: a hard veto checked independently of
+  `genres`/`tv_genres` (or a learned profile) — a title carrying an
+  excluded genre is never suggested or surprised, full stop. Lets
+  `learn_genres_from_library` be used safely without a disliked genre
+  ever sneaking back in via watch history.
+- Suggested/surprise records now carry the release year, and the
+  status sensor exposes real recent-suggestion and tracked-surprise
+  lists (title, year, decision/status, delete countdown) instead of
+  just counts — surfaced in the web UI as proper tables.
+- The status sensor also now reports `learn_genres_from_library`,
+  `excluded_genres`, and the currently *effective* genre list (fixed
+  or learned) — previously there was no way to see whether library
+  taste-learning was active or what it had derived.
+- Reworked the web UI's visual design (distinct palette/typography
+  instead of a generic dashboard look) and added the SABnzbd queue's
+  individual item list, not just aggregate numbers.
+
 ## 0.2.2
 
 - Removed `armv7`/`armhf`/`i386` from `arch`/`build.yaml` (deprecated

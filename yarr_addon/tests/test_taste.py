@@ -39,3 +39,21 @@ def test_top_genres_case_insensitive_and_multi_genre_items():
     result = top_genres(items, top_n=2)
     assert result[0] == "drama"
     assert "thriller" in result
+
+
+def test_top_genres_excludes_even_if_most_watched():
+    items = [
+        WatchedItem(genres=["horror"]),
+        WatchedItem(genres=["horror"]),
+        WatchedItem(genres=["horror"]),
+        WatchedItem(genres=["comedy"]),
+    ]
+    result = top_genres(items, top_n=5, exclude=["horror"])
+    assert "horror" not in result
+    assert result == ["comedy"]
+
+
+def test_top_genres_exclude_is_case_insensitive():
+    items = [WatchedItem(genres=["Horror"]), WatchedItem(genres=["comedy"])]
+    result = top_genres(items, top_n=5, exclude=["horror"])
+    assert result == ["comedy"]

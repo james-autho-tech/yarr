@@ -22,9 +22,9 @@ yarr:
   # still applies). Ignored if learn_genres_from_library is true and
   # your library has yielded a learned list — see below.
   genres:
-    - science fiction
-    - thriller
+    - action
     - comedy
+    - science fiction
 
   min_rating: 7.0
   discovery_interval_hours: 24
@@ -39,7 +39,7 @@ yarr:
   # only if you want surprises to draw from a different pool.
   surprise_enabled: true
   # surprise_genres:
-  #   - horror
+  #   - thriller
   surprise_min_days: 5
   surprise_max_days: 10
   surprise_tag: yarr-surprise
@@ -49,8 +49,9 @@ yarr:
   # section as-is for a movies-only install. ---
 
   tv_genres:
-    - science fiction
+    - action
     - comedy
+    - science fiction
   tv_min_rating: 7.0
   tv_discovery_interval_hours: 24
   tv_max_suggestions_per_run: 3
@@ -95,6 +96,12 @@ yarr:
   # a brand new Jellyfin instance).
   learn_genres_from_library: false
   taste_top_n_genres: 5
+
+  # Hard veto — a title carrying any of these is never suggested or
+  # surprised, regardless of genres/tv_genres above or a learned
+  # profile. Applies to both movies and TV.
+  excluded_genres:
+    - horror
 
   # If true, discovery/surprise picks are computed and logged but never
   # actually added to Radarr/Sonarr — useful for checking your genre/

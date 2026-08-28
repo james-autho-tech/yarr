@@ -85,3 +85,14 @@ def test_learn_genres_from_library_default_off():
     cfg = build_config({}, {})
     assert cfg.learn_genres_from_library is False
     assert cfg.taste_top_n_genres == 5
+
+
+def test_excluded_genres_default_empty_and_parsed():
+    assert build_config({}, {}).excluded_genres == []
+    cfg = build_config({"excluded_genres": ["Horror", "War"]}, {})
+    assert cfg.excluded_genres == ["horror", "war"]
+
+
+def test_excluded_genres_must_be_a_list():
+    with pytest.raises(ConfigError):
+        build_config({"excluded_genres": "horror"}, {})
