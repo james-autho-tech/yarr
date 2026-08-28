@@ -84,6 +84,11 @@ class YarrConfig:
     # learned profile) — a title carrying one of these is never
     # suggested/surprised regardless of anything else matching.
     excluded_genres: list = field(default_factory=list)
+    # TMDB returns 20 results per page; page 1 alone gets exhausted fast
+    # once genre/rating/exclusion/already-suggested filters are applied,
+    # producing "no candidate matched" more often than the actual pool
+    # of decent titles would suggest. Shared by movie and TV discovery.
+    tmdb_pages: int = 3
     dry_run: bool = False
 
     # --- addon_secrets.json (config.yaml options — never in apps.yaml) ---
@@ -163,6 +168,7 @@ def build_config(apps_yaml_dict: dict, secrets_dict: dict) -> YarrConfig:
         learn_genres_from_library=bool(a.get("learn_genres_from_library", False)),
         taste_top_n_genres=int(a.get("taste_top_n_genres", 5)),
         excluded_genres=excluded_genres,
+        tmdb_pages=int(a.get("tmdb_pages", 3)),
         dry_run=bool(a.get("dry_run", False)),
 
         radarr_url=str(s.get("radarr_url", "")),

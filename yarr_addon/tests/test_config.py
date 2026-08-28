@@ -23,6 +23,12 @@ def test_surprise_feedback_deny_threshold_parsed():
     assert cfg.surprise_feedback_deny_threshold == 3
 
 
+def test_tmdb_pages_default_and_parsed():
+    assert build_config({}, {}).tmdb_pages == 3
+    cfg = build_config({"tmdb_pages": 5}, {})
+    assert cfg.tmdb_pages == 5
+
+
 def test_merges_behaviour_and_secrets():
     cfg = build_config(
         {"genres": ["Sci-Fi", "Comedy"], "min_rating": 8.0},

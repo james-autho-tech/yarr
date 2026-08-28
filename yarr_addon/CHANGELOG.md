@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.1
+
+- Added `tick_reconcile_surprises` (every 30 min): cross-checks tracked
+  surprises against what's actually still in Radarr/Sonarr and
+  untracks anything deleted directly there instead of through yArr —
+  previously that left stale entries tracked forever.
+- Delete failures (manual, grace-period, or reconciliation-adjacent) no
+  longer get stuck retrying forever — if Radarr/Sonarr rejects the
+  delete (most commonly because it's already gone), yArr untracks it
+  anyway with a warning instead of repeating the same failure every
+  cycle. Fixes a real case: a Sonarr series already deleted directly
+  caused every delete attempt to 500 indefinitely.
+- Added `tmdb_pages` (default 3, was implicitly 1): TMDB's 20-results-
+  per-page default pool was getting exhausted fast once genre/rating/
+  exclusion/already-suggested filters were applied, causing "no
+  surprise candidate matched" more often than the actual pool of good
+  titles would suggest.
+
 ## 0.7.0
 
 - **Surprise picks now require Accept/Deny approval by default**

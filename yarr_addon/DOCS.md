@@ -177,6 +177,22 @@ reorders anything in the queue.
   API) — that usually means HA core wasn't fully up yet when the
   add-on started; restart the add-on once HA itself is confirmed
   running.
+- **A tracked surprise stays listed after you deleted it directly in
+  Radarr/Sonarr** (not via yArr's own Delete button) — yArr only finds
+  out through its own delete flow or through `tick_reconcile_surprises`,
+  which cross-checks the current library every 30 minutes and untracks
+  anything no longer actually present. It'll clear itself within that
+  window; there's nothing to configure. This is also why a delete can
+  now fail with something like `Expected query to return 1 rows but
+  returned 0` (Sonarr) or a 404 (Radarr) and still get untracked on
+  yArr's side — the id is already gone, so the delete call itself
+  fails, but there's no reason to keep tracking something that isn't
+  there.
+- **"No surprise candidate matched your filters this time" happens a
+  lot** — TMDB returns 20 results per page, and page 1 alone gets
+  exhausted fast once genre/rating/exclusion/already-suggested filters
+  are all applied. Raise `tmdb_pages` in `apps.yaml` (default 3) for a
+  bigger pool to filter from.
 - **Web UI shows "Not configured"** — one of `radarr_url`,
   `radarr_api_key`, `tmdb_api_key`, `jellyfin_url`, `jellyfin_api_key`
   is missing from the Configuration tab. `sensor.yarr_status`'s

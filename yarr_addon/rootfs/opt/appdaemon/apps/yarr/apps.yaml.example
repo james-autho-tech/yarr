@@ -116,6 +116,13 @@ yarr:
   # for visibility but don't currently change what gets picked.
   surprise_feedback_deny_threshold: 2
 
+  # TMDB returns 20 results per page — page 1 alone gets exhausted fast
+  # once genre/rating/exclusion/already-suggested filters are applied,
+  # which is the usual cause of "no surprise candidate matched your
+  # filters this time" showing up often. Raise if that keeps happening;
+  # each extra page costs a few more TMDB API calls per discovery tick.
+  tmdb_pages: 3
+
   # If true, discovery/surprise picks are computed and logged but never
   # actually added to Radarr/Sonarr — useful for checking your genre/
   # rating settings are producing sensible picks before trusting it

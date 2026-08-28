@@ -79,6 +79,7 @@ class Yarr(hass.Hass):
             self.run_every(self.tick_tv_discovery, "now", self.cfg.tv_discovery_interval_hours * 3600)
             self.run_every(self.tick_tv_surprise_check, "now", 3600)
         self.run_every(self.tick_delete_guard, "now", 900)
+        self.run_every(self.tick_reconcile_surprises, "now", 1800)
         if self.cfg.sabnzbd_enabled:
             self.run_every(self.tick_sabnzbd_status, "now", 60)
         self.run_every(self.publish_status, "now", 60)
@@ -205,7 +206,8 @@ class Yarr(hass.Hass):
         now = datetime.now(timezone.utc)
         try:
             self._resync_watched_and_taste_if_stale(now)
-            candidates = self.tmdb.discover(self._effective_genres(), self.cfg.min_rating)
+            candidates = self.tmdb.discover(self._effective_genres(), self.cfg.min_rating,
+                                             pages=self.cfg.tmdb_pages)
             radarr_ids = self.radarr.get_library_tmdb_ids()
         except (TMDBError, RadarrError, JellyfinError) as exc:
             self._log_event(f"tick_discovery failed: {exc}", level="error")
@@ -262,7 +264,7 @@ class Yarr(hass.Hass):
         excluded = list(self.cfg.excluded_genres) + self._denied_genres()
         try:
             self._resync_watched_and_taste_if_stale(now)
-            candidates = self.tmdb.discover(genres, self.cfg.min_rating)
+            candidates = self.tmdb.discover(genres, self.cfg.min_rating, pages=self.cfg.tmdb_pages)
             radarr_ids = self.radarr.get_library_tmdb_ids()
         except (TMDBError, RadarrError, JellyfinError) as exc:
             self._log_event(f"surprise pick failed: {exc}", level="error")
@@ -366,8 +368,14 @@ class Yarr(hass.Hass):
             try:
                 self.radarr.delete_movie(film.radarr_movie_id)
             except RadarrError as exc:
-                self._log_event(f"Could not delete {film.title!r} from Radarr: {exc}", level="error")
-                return
+                # Untrack anyway rather than leaving this stuck forever —
+                # the usual cause is it's already gone from Radarr (e.g.
+                # deleted there directly), which makes every future
+                # attempt fail identically. Worst case if it wasn't
+                # actually gone: it just sits in Radarr untracked.
+                self._log_event(f"Could not delete {film.title!r} from Radarr ({exc}) — "
+                                 "untracking anyway, probably already removed there directly.",
+                                 level="warn")
         self.state_data = core_state.confirm_deleted(self.state_data, int(tmdb_id))
         self._log_event(f"Deleted {film.title!r} — removed manually.")
 
@@ -381,7 +389,8 @@ class Yarr(hass.Hass):
         now = datetime.now(timezone.utc)
         try:
             self._resync_watched_and_taste_if_stale(now)
-            candidates = self.tmdb.discover_tv(self._effective_tv_genres(), self.cfg.tv_min_rating)
+            candidates = self.tmdb.discover_tv(self._effective_tv_genres(), self.cfg.tv_min_rating,
+                                                pages=self.cfg.tmdb_pages)
             sonarr_ids = self.sonarr.get_library_tvdb_ids()
         except (TMDBError, SonarrError, JellyfinError) as exc:
             self._log_event(f"tick_tv_discovery failed: {exc}", level="error")
@@ -441,7 +450,7 @@ class Yarr(hass.Hass):
         excluded = list(self.cfg.excluded_genres) + self._denied_genres()
         try:
             self._resync_watched_and_taste_if_stale(now)
-            candidates = self.tmdb.discover_tv(genres, self.cfg.tv_min_rating)
+            candidates = self.tmdb.discover_tv(genres, self.cfg.tv_min_rating, pages=self.cfg.tmdb_pages)
             sonarr_ids = self.sonarr.get_library_tvdb_ids()
         except (TMDBError, SonarrError, JellyfinError) as exc:
             self._log_event(f"TV surprise pick failed: {exc}", level="error")
@@ -532,8 +541,10 @@ class Yarr(hass.Hass):
             try:
                 self.sonarr.delete_series(show.sonarr_series_id)
             except SonarrError as exc:
-                self._log_event(f"Could not delete {show.title!r} from Sonarr: {exc}", level="error")
-                return
+                # Untrack anyway — see on_delete_surprise_now's comment.
+                self._log_event(f"Could not delete {show.title!r} from Sonarr ({exc}) — "
+                                 "untracking anyway, probably already removed there directly.",
+                                 level="warn")
         self.state_data = core_state.confirm_show_deleted(self.state_data, int(tvdb_id))
         self._log_event(f"Deleted {show.title!r} — removed manually.")
 
@@ -621,8 +632,13 @@ class Yarr(hass.Hass):
                     try:
                         self.radarr.delete_movie(film.radarr_movie_id)
                     except RadarrError as exc:
-                        self._log_event(f"Could not delete {film.title!r} from Radarr: {exc}", level="error")
-                        continue
+                        # Untrack anyway — see on_delete_surprise_now's
+                        # comment; otherwise a title already removed
+                        # from Radarr directly fails this same way every
+                        # 15 minutes forever.
+                        self._log_event(f"Could not delete {film.title!r} from Radarr ({exc}) — "
+                                         "untracking anyway, probably already removed there directly.",
+                                         level="warn")
                 self._log_event(f"Deleted {film.title!r} after the grace period.")
                 self.state_data = core_state.confirm_deleted(self.state_data, film.tmdb_id)
             self.set_state("input_boolean.yarr_keep_surprise", state="off")
@@ -640,11 +656,48 @@ class Yarr(hass.Hass):
                         try:
                             self.sonarr.delete_series(show.sonarr_series_id)
                         except SonarrError as exc:
-                            self._log_event(f"Could not delete {show.title!r} from Sonarr: {exc}", level="error")
-                            continue
+                            self._log_event(f"Could not delete {show.title!r} from Sonarr ({exc}) — "
+                                             "untracking anyway, probably already removed there directly.",
+                                             level="warn")
                     self._log_event(f"Deleted {show.title!r} after the grace period.")
                     self.state_data = core_state.confirm_show_deleted(self.state_data, show.tvdb_id)
                 self.set_state("input_boolean.yarr_keep_surprise_tv", state="off")
+
+        self._save_state()
+
+    def tick_reconcile_surprises(self, kwargs):
+        """yArr only learns about a deletion through its own delete
+        flow — if a tracked surprise is removed directly in Radarr/
+        Sonarr instead, yArr's state never finds out and keeps showing
+        it as tracked forever. Periodically cross-checks the current
+        library against what's tracked and untracks anything that's no
+        longer actually there, regardless of how it disappeared."""
+        if self.missing_secrets:
+            return
+        try:
+            radarr_ids = self.radarr.get_library_tmdb_ids()
+        except RadarrError as exc:
+            self._log_event(f"tick_reconcile_surprises (movies) failed: {exc}", level="error")
+            radarr_ids = None
+        if radarr_ids is not None:
+            for key, film in list(self.state_data.surprises.items()):
+                if film.radarr_movie_id is not None and film.tmdb_id not in radarr_ids:
+                    self.state_data = core_state.confirm_deleted(self.state_data, film.tmdb_id)
+                    self._log_event(f"{film.title!r} is no longer in Radarr — untracked "
+                                     "(deleted outside yArr?).")
+
+        if self.cfg.tv_enabled:
+            try:
+                sonarr_ids = self.sonarr.get_library_tvdb_ids()
+            except SonarrError as exc:
+                self._log_event(f"tick_reconcile_surprises (TV) failed: {exc}", level="error")
+                sonarr_ids = None
+            if sonarr_ids is not None:
+                for key, show in list(self.state_data.surprises_shows.items()):
+                    if show.sonarr_series_id is not None and show.tvdb_id not in sonarr_ids:
+                        self.state_data = core_state.confirm_show_deleted(self.state_data, show.tvdb_id)
+                        self._log_event(f"{show.title!r} is no longer in Sonarr — untracked "
+                                         "(deleted outside yArr?).")
 
         self._save_state()
 
