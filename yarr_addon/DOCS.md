@@ -18,20 +18,24 @@ Configuration tab (credentials):
    hourly polls against persisted random timestamps between
    `surprise_min_days`/`surprise_max_days` — separately for movies and
    TV) — same filtering, but tags the pick (`surprise_tag`/
-   `tv_surprise_tag`) and tracks it separately. The **"yArr: Surprise Me
-   Now"** / **"yArr: Surprise Me Now (TV)"** HA buttons (also in the web
-   UI) trigger one immediately.
+   `tv_surprise_tag`) and tracks it separately. The web UI's **"Surprise
+   Me Now"** / **"Surprise Me Now (TV)"** buttons trigger one
+   immediately — these fire a plain HA event (`yarr_surprise_me_now`/
+   `yarr_surprise_tv_now`) rather than pressing a real `input_button`
+   entity, so there's nothing to set up in HA for them to work.
 4. **Watch-and-delete** — once Jellyfin reports a *tagged surprise
    film* played past `completion_threshold_pct`, or a *tagged surprise
    show's last episode* crosses it (mid-series episodes don't count —
    yArr checks Jellyfin's own "fully watched" status for the series
    before scheduling anything), yArr schedules deletion
-   `delete_grace_period_hours` later and sends an HA notification.
-   Flip **"yArr: Keep the pending surprise film"**
-   (`input_boolean.yarr_keep_surprise`) or **"...surprise show"**
-   (`input_boolean.yarr_keep_surprise_tv`) on before the grace period
-   elapses to keep it instead. This never touches your regular library
-   or the genre auto-adds — only titles yArr itself added and tagged.
+   `delete_grace_period_hours` later and sends an HA notification and
+   shows a **Keep It** button in the web UI. `input_boolean.yarr_keep_surprise`
+   / `yarr_keep_surprise_tv` are AppDaemon-owned virtual states (not
+   real helpers — see `ha_support.yaml` if you want them as real
+   dashboard-toggleable ones instead), flipped on by that button before
+   the grace period elapses to keep the title instead of deleting it.
+   This never touches your regular library or the genre auto-adds —
+   only titles yArr itself added and tagged.
 
 ## TMDB setup
 
@@ -146,15 +150,19 @@ reorders anything in the queue.
 
 ## Troubleshooting
 
-- **"Surprise Me Now" (or the movie/TV buttons) does nothing** — check
-  the AppDaemon log at startup for `Could not sync input_button.*` /
-  `Could not sync automation.*`. Helpers/the webhook automation are
-  created via HA's Core Config API on every start (no filesystem
-  write, no Protection-mode approval needed) — a failure here usually
-  means HA core wasn't fully up yet when the add-on started; restart
-  the add-on once HA itself is confirmed running. You should see
-  `Synced input_boolean.yarr_enable` etc. in the log on a healthy
-  start.
+- **"Surprise Me Now" (or the webhook, or the keep-it toggle) does
+  nothing** — these no longer depend on real `input_boolean`/
+  `input_button` helpers existing in HA at all (an earlier version did,
+  and a real install showed HA's Config REST API 404s on both — modern
+  HA moved simple helpers to a config-entry flow that endpoint doesn't
+  serve). Buttons fire a plain HA event directly and the keep-it
+  toggles are AppDaemon-owned virtual states created on first start —
+  both work with zero HA-side setup. If it's still not working, check
+  the AppDaemon log for `Could not sync automation.yarr_playback_stop_relay`
+  (only the webhook-relay automation still goes through the Config
+  API) — that usually means HA core wasn't fully up yet when the
+  add-on started; restart the add-on once HA itself is confirmed
+  running.
 - **Web UI shows "Not configured"** — one of `radarr_url`,
   `radarr_api_key`, `tmdb_api_key`, `jellyfin_url`, `jellyfin_api_key`
   is missing from the Configuration tab. `sensor.yarr_status`'s

@@ -1,22 +1,42 @@
 # =====================================================================
-# yArr — HA-side support, REFERENCE ONLY.
+# yArr — HA-side support, REFERENCE ONLY / optional manual fallback.
 #
-# The add-on creates these same helpers and this same automation
-# automatically on every start via HA's Core Config REST API
-# (/api/config/<domain>/config/<id> — see the `run` script) — nothing
-# here needs to be hand-installed. This file exists purely as a
-# readable equivalent, and as a manual fallback: if you'd rather manage
-# it yourself, save this as /config/packages/yarr.yaml (needs
-# `homeassistant: packages: !include_dir_named packages`) and it does
-# the same job, minus the auto-sync-on-update the API path gives you.
+# The add-on's `run` script auto-syncs the automation below via HA's
+# Core Config REST API (/api/config/automation/config/<id> — the same
+# endpoint Settings > Automations itself uses) on every start —
+# nothing needs to be hand-installed for it.
 #
-# Why this exists at all rather than being pure AppDaemon:
-# - input_boolean/input_button must be real HA helpers to be toggleable
-#   from the UI/dashboards, not just AppDaemon-set virtual states
-# - Jellyfin's Webhook plugin needs a plain, externally-POSTable URL;
-#   Supervisor's Ingress proxy is authenticated and not reachable that
-#   way, so HA core's own `webhook` automation trigger does the job
-#   instead — see DOCS.md for the Jellyfin-side setup this expects.
+# The input_boolean/input_button entries below are NOT auto-created —
+# a real install confirmed HA's Config REST API returns HTTP 404 for
+# both domains (modern HA moved simple helpers to a config-entry flow
+# that endpoint doesn't serve, unlike automation/scene/script, which
+# still support it). yarr.py works around this by owning those three
+# toggle states itself as plain AppDaemon virtual states (created on
+# first start if missing — see initialize()'s _ensure_boolean_states),
+# and its own web UI reads/writes them directly via HA's raw
+# /api/states/<id> endpoint rather than an input_boolean service call.
+# That's fully functional on its own — you do NOT need this file for
+# yArr's own web UI to work.
+#
+# Reasons you might still want these as REAL helpers instead:
+# - a virtual state (no backing integration) can't be toggled from a
+#   normal Lovelace toggle/button card — only from yArr's own web UI,
+#   or manually via Developer Tools > States
+# - you want them to show up under Settings > Helpers
+#
+# If so, paste the input_boolean/input_button blocks below into
+# /config/packages/yarr.yaml (needs
+# `homeassistant: packages: !include_dir_named packages`) yourself.
+# Once real helpers exist under these same entity_ids, yarr.py and the
+# web UI keep working exactly the same way — reading/writing whichever
+# kind of state happens to be there, real or virtual, with no code
+# change needed on either side.
+#
+# Why the webhook relay has to live in HA core at all:
+# Jellyfin's Webhook plugin needs a plain, externally-POSTable URL;
+# Supervisor's Ingress proxy is authenticated and not reachable that
+# way, so HA core's own `webhook` automation trigger does the job
+# instead — see DOCS.md for the Jellyfin-side setup this expects.
 #
 # There is no deadman-switch watchdog here: a stuck AppDaemon just
 # means stale recommendations or a delayed deletion, nothing
@@ -24,6 +44,8 @@
 # tick_delete_guard) is itself already restart-safe.
 # =====================================================================
 
+# Optional — see the note above. yArr creates/manages these itself as
+# virtual states if you don't add them here.
 input_boolean:
   yarr_enable:
     name: yArr Engine Master Switch
@@ -40,16 +62,21 @@ input_boolean:
     icon: mdi:heart
     initial: off
 
+# Optional — see the note above. Buttons are only used by yArr's own
+# web UI, which fires a plain yarr_surprise_me_now/yarr_surprise_tv_now
+# HA event directly and needs no entity at all to do so. Add these only
+# if you want a press-able button on your own Lovelace dashboard too —
+# you'd need your own automation binding its press to firing that same
+# event, since yarr.py listens for the event, not this button's state.
 input_button:
   yarr_surprise_me_now:
     name: "yArr: Surprise Me Now"
     icon: mdi:dice-multiple
-  # Only useful once Sonarr is configured in the add-on's Configuration
-  # tab — harmless to leave visible either way.
   yarr_surprise_tv_now:
     name: "yArr: Surprise Me Now (TV)"
     icon: mdi:dice-multiple-outline
 
+# Auto-synced by the add-on itself — included here only for reference.
 automation:
   - alias: "yArr Jellyfin playback-stop relay"
     description: >

@@ -52,64 +52,6 @@ cp -r /opt/appdaemon/apps/yarr/core "${CONFIG_DIR}/apps/yarr/core"
 rm -rf "${CONFIG_DIR}/apps/yarr/clients"
 cp -r /opt/appdaemon/apps/yarr/clients "${CONFIG_DIR}/apps/yarr/clients"
 
-# Helpers (input_boolean/input_button) + the Jellyfin webhook-relay
-# automation are created through HA core's own Config REST API
-# (/api/config/<domain>/config/<id> — the same endpoint Settings >
-# Helpers/Automations uses) rather than by writing a YAML file into
-# /config. This needs nothing beyond the Core API access every add-on
-# already has (hassio_api/homeassistant_api) — no homeassistant_config
-# filesystem mount, and critically no Protection-mode approval, which
-# a real install showed can silently stay blocked even with the map
-# entry correctly declared. Idempotent (POST upserts by id), so this
-# just runs — and re-applies instantly, no HA restart — every boot.
-bashio::log.info "Syncing yArr's HA helpers + webhook-relay automation..."
-python3 - <<'PYEOF' || true
-import json
-import os
-import urllib.error
-import urllib.request
-
-token = os.environ["SUPERVISOR_TOKEN"]
-BASE = "http://supervisor/core/api/config"
-
-
-def put(domain, key, body):
-    req = urllib.request.Request(
-        f"{BASE}/{domain}/config/{key}", method="POST",
-        data=json.dumps(body).encode(),
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
-    try:
-        urllib.request.urlopen(req, timeout=10)
-        print(f"Synced {domain}.{key}")
-    except (urllib.error.URLError, urllib.error.HTTPError) as exc:
-        print(f"Could not sync {domain}.{key}: {exc}")
-
-
-put("input_boolean", "yarr_enable",
-    {"name": "yArr Engine Master Switch", "icon": "mdi:movie-open-play", "initial": True})
-put("input_boolean", "yarr_keep_surprise",
-    {"name": "yArr: Keep the pending surprise film", "icon": "mdi:heart", "initial": False})
-# Separate from yarr_keep_surprise so a pending movie deletion and a
-# pending show deletion can't accidentally cross-cancel each other.
-put("input_boolean", "yarr_keep_surprise_tv",
-    {"name": "yArr: Keep the pending surprise show", "icon": "mdi:heart", "initial": False})
-put("input_button", "yarr_surprise_me_now",
-    {"name": "yArr: Surprise Me Now", "icon": "mdi:dice-multiple"})
-# Only useful once Sonarr is configured — harmless to leave visible either way.
-put("input_button", "yarr_surprise_tv_now",
-    {"name": "yArr: Surprise Me Now (TV)", "icon": "mdi:dice-multiple-outline"})
-put("automation", "yarr_playback_stop_relay", {
-    "alias": "yArr Jellyfin playback-stop relay",
-    "description": ("Re-fires Jellyfin's Webhook-plugin PlaybackStop payload (Movie or "
-                     "Episode) as a plain HA event yarr.py subscribes to via listen_event() "
-                     "— see DOCS.md for the Jellyfin-side webhook template this expects."),
-    "mode": "queued",
-    "triggers": [{"trigger": "webhook", "webhook_id": "yarr_playback_stop",
-                  "local_only": True, "allowed_methods": ["POST"]}],
-    "actions": [{"event": "yarr_jellyfin_webhook", "event_data": {"payload": "{{ trigger.json }}"}}],
-})
-PYEOF
-
 # Real credentials from the add-on's Configuration tab — written as a
 # small JSON file yarr.py reads at startup, never touching apps.yaml.
 # Passed via env vars (not string-interpolated) to dodge quoting issues.
@@ -184,6 +126,47 @@ then
     bashio::log.error "Failed to fetch HA core config — cannot start AppDaemon."
     exit 1
 fi
+
+# The Jellyfin webhook-relay automation is created through HA core's
+# Config REST API (/api/config/automation/config/<id> — the same
+# endpoint Settings > Automations itself uses) rather than a written
+# YAML file — confirmed working against a real install. input_boolean/
+# input_button do NOT have an equivalent here (a real install returned
+# HTTP 404 for both — modern HA moved simple helpers to a config-entry
+# flow this endpoint doesn't serve), which is why yarr.py owns those
+# three states directly instead (see its initialize()) rather than
+# depending on a real helper existing. Only runs now, after HA core is
+# confirmed up above — running it earlier is exactly what caused this
+# to silently no-op on a real install (HA core wasn't ready yet).
+bashio::log.info "Syncing yArr's Jellyfin webhook-relay automation..."
+python3 - <<'PYEOF' || true
+import json
+import os
+import urllib.error
+import urllib.request
+
+token = os.environ["SUPERVISOR_TOKEN"]
+req = urllib.request.Request(
+    "http://supervisor/core/api/config/automation/config/yarr_playback_stop_relay",
+    method="POST",
+    data=json.dumps({
+        "alias": "yArr Jellyfin playback-stop relay",
+        "description": ("Re-fires Jellyfin's Webhook-plugin PlaybackStop payload (Movie or "
+                         "Episode) as a plain HA event yarr.py subscribes to via "
+                         "listen_event() — see DOCS.md for the Jellyfin-side webhook "
+                         "template this expects."),
+        "mode": "queued",
+        "triggers": [{"trigger": "webhook", "webhook_id": "yarr_playback_stop",
+                      "local_only": True, "allowed_methods": ["POST"]}],
+        "actions": [{"event": "yarr_jellyfin_webhook", "event_data": {"payload": "{{ trigger.json }}"}}],
+    }).encode(),
+    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+try:
+    urllib.request.urlopen(req, timeout=10)
+    print("Synced automation.yarr_playback_stop_relay")
+except (urllib.error.URLError, urllib.error.HTTPError) as exc:
+    print(f"Could not sync automation.yarr_playback_stop_relay: {exc}")
+PYEOF
 
 bashio::log.info "Starting AppDaemon..."
 cd "${CONFIG_DIR}" || exit 1

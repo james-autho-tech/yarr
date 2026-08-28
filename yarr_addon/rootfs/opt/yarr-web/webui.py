@@ -26,10 +26,35 @@ def ha_get_all_states():
         return {}
 
 
-def ha_call_service(domain_service, entity_id=None, **data):
-    payload = json.dumps({**({"entity_id": entity_id} if entity_id else {}), **data}).encode()
+def ha_fire_event(event_type, data=None):
+    """POST /api/events/<type> — a bare custom event, no entity/service
+    involved at all. Used for the surprise-me buttons instead of
+    pressing an input_button entity: a real install showed HA's Config
+    REST API 404s on input_boolean/input_button creation (modern HA
+    moved those to a config-entry flow that endpoint doesn't serve),
+    so yarr.py listens for these events directly instead."""
+    payload = json.dumps(data or {}).encode()
     req = urllib.request.Request(
-        f"http://supervisor/core/api/services/{domain_service}",
+        f"http://supervisor/core/api/events/{event_type}",
+        data=payload, method="POST",
+        headers={"Authorization": f"Bearer {SUPERVISOR_TOKEN}",
+                 "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        return resp.status
+
+
+def ha_set_state(entity_id, state, attributes=None):
+    """POST /api/states/<id> — HA's raw state-set endpoint, works for
+    any entity_id with no backing integration required. Used for the
+    keep-surprise toggles, which yarr.py owns as plain AppDaemon
+    virtual states rather than real input_boolean helpers (same reason
+    as ha_fire_event above)."""
+    body = {"state": state}
+    if attributes:
+        body["attributes"] = attributes
+    payload = json.dumps(body).encode()
+    req = urllib.request.Request(
+        f"http://supervisor/core/api/states/{entity_id}",
         data=payload, method="POST",
         headers={"Authorization": f"Bearer {SUPERVISOR_TOKEN}",
                  "Content-Type": "application/json"})
@@ -276,8 +301,14 @@ async function refresh() {
     <div class="mode-line">${genreMode}</div>
     ${chipsRow(d.effective_genres)}
     ${d.excluded_genres && d.excluded_genres.length ? `<div class="mode-line" style="margin-top:8px">Never suggested</div>${chipsRow(d.excluded_genres, 'off')}` : ''}
-    <div style="margin:14px 0 18px"><button onclick="surpriseNow()">Surprise Me Now</button>
-      ${d.keep_surprise ? '<span class="keep-note">A pending deletion is currently set to be kept.</span>' : ''}</div>
+    <div style="margin:14px 0 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <button onclick="surpriseNow()">Surprise Me Now</button>
+      ${(d.surprises||[]).some(s => s.status === 'deleting_soon') ? (
+        d.keep_surprise
+          ? '<span class="keep-note">Pending deletion will be kept.</span>'
+          : '<button class="ghost" onclick="keepSurprise()">Keep It</button>'
+      ) : ''}
+    </div>
     <div class="section-note" style="margin-bottom:6px">Recently suggested</div>
     ${suggestedTable(d.recent_suggested)}
     <div class="section-note" style="margin:16px 0 6px">Tracked surprises</div>
@@ -300,8 +331,14 @@ async function refresh() {
       </div>
       <div class="mode-line">${tvGenreMode}</div>
       ${chipsRow(d.effective_tv_genres)}
-      <div style="margin:14px 0 18px"><button onclick="surpriseTvNow()">Surprise Me Now (TV)</button>
-        ${d.keep_surprise_tv ? '<span class="keep-note">A pending deletion is currently set to be kept.</span>' : ''}</div>
+      <div style="margin:14px 0 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <button onclick="surpriseTvNow()">Surprise Me Now (TV)</button>
+        ${(d.surprise_shows||[]).some(s => s.status === 'deleting_soon') ? (
+          d.keep_surprise_tv
+            ? '<span class="keep-note">Pending deletion will be kept.</span>'
+            : '<button class="ghost" onclick="keepSurpriseTv()">Keep It</button>'
+        ) : ''}
+      </div>
       <div class="section-note" style="margin-bottom:6px">Recently suggested</div>
       ${suggestedTable(d.recent_suggested_shows)}
       <div class="section-note" style="margin:16px 0 6px">Tracked surprises</div>
@@ -342,6 +379,8 @@ async function refresh() {
 }
 async function surpriseNow(){ await post('api/surprise-now'); refresh(); }
 async function surpriseTvNow(){ await post('api/surprise-tv-now'); refresh(); }
+async function keepSurprise(){ await post('api/keep-surprise'); refresh(); }
+async function keepSurpriseTv(){ await post('api/keep-surprise-tv'); refresh(); }
 refresh();
 setInterval(refresh, 5000);
 </script>
@@ -363,10 +402,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0].rstrip("/")
         try:
             if path.endswith("/api/surprise-now"):
-                ha_call_service("input_button/press", "input_button.yarr_surprise_me_now")
+                ha_fire_event("yarr_surprise_me_now")
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")
             elif path.endswith("/api/surprise-tv-now"):
-                ha_call_service("input_button/press", "input_button.yarr_surprise_tv_now")
+                ha_fire_event("yarr_surprise_tv_now")
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/keep-surprise"):
+                ha_set_state("input_boolean.yarr_keep_surprise", "on",
+                             {"friendly_name": "yArr: Keep the pending surprise film", "icon": "mdi:heart"})
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/keep-surprise-tv"):
+                ha_set_state("input_boolean.yarr_keep_surprise_tv", "on",
+                             {"friendly_name": "yArr: Keep the pending surprise show", "icon": "mdi:heart"})
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")

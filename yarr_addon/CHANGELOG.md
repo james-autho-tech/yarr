@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.6.0
+
+- **Fixed 0.5.0's fix**: a real install showed HA's Config REST API
+  returns HTTP 404 for `input_boolean`/`input_button` (modern HA moved
+  simple helpers to a config-entry flow that endpoint doesn't serve —
+  only `automation`/`scene`/`script` still support it; confirmed
+  working since `automation.yarr_playback_stop_relay` synced fine in
+  the same run). Dropped the dependency entirely instead of chasing
+  the right API: yarr.py now owns `yarr_enable`/`yarr_keep_surprise`/
+  `yarr_keep_surprise_tv` directly as AppDaemon virtual states
+  (created on first start if missing), and the "Surprise Me Now"
+  buttons fire a plain HA event (`POST /api/events/<type>`) instead of
+  pressing an `input_button` entity — neither needs any HA-side setup
+  at all now. `ha_support.yaml` documents how to add real helpers
+  instead if you want them toggleable from your own dashboard too.
+- Also fixed a startup-ordering bug: the (now-automation-only) Config
+  API sync ran *before* the existing "wait for HA core to be ready"
+  retry loop, so it could silently no-op if HA hadn't finished starting
+  yet. Moved it after.
+- Added a working **Keep It** button in the web UI for a pending
+  deletion — this control was described in earlier versions but never
+  actually wired up to anything.
+
 ## 0.5.0
 
 - **Dropped the `homeassistant_config` filesystem mount entirely.**

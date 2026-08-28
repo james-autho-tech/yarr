@@ -53,10 +53,18 @@ class Yarr(hass.Hass):
         self.sabnzbd = (SABnzbdClient(self.cfg.sabnzbd_url, self.cfg.sabnzbd_api_key)
                          if self.cfg.sabnzbd_enabled else None)
         self._jellyfin_user_id = None
+        self._ensure_boolean_states()
 
-        self.listen_state(self.on_surprise_now_pressed, "input_button.yarr_surprise_me_now")
+        # Plain custom HA events, not input_button entities — a real
+        # install showed HA's Config REST API 404s on input_boolean/
+        # input_button (modern HA moved simple helpers to a config-entry
+        # flow that endpoint doesn't serve; only automation/scene/script
+        # still support it), so buttons are pressed by the web UI firing
+        # a bare event via POST /api/events/<type> instead, which needs
+        # no entity to exist at all.
+        self.listen_event(self.on_surprise_now_pressed, "yarr_surprise_me_now")
         if self.cfg.tv_enabled:
-            self.listen_state(self.on_surprise_tv_now_pressed, "input_button.yarr_surprise_tv_now")
+            self.listen_event(self.on_surprise_tv_now_pressed, "yarr_surprise_tv_now")
         self.listen_event(self.on_jellyfin_webhook, "yarr_jellyfin_webhook")
 
         self.run_every(self.tick_discovery, "now", self.cfg.discovery_interval_hours * 3600)
@@ -79,6 +87,25 @@ class Yarr(hass.Hass):
 
     def _enabled(self) -> bool:
         return self.get_state("input_boolean.yarr_enable") != "off"
+
+    def _ensure_boolean_states(self):
+        """Creates the three toggle states yArr uses if they don't
+        already exist, so they survive an AppDaemon restart without
+        being reset — these are AppDaemon-owned virtual states, not
+        real input_boolean helpers (see the run script's comment on
+        why), so the web UI sets them via HA's raw /api/states/<id>
+        endpoint rather than an input_boolean service call."""
+        defaults = {
+            "input_boolean.yarr_enable": ("on", "yArr Engine Master Switch", "mdi:movie-open-play"),
+            "input_boolean.yarr_keep_surprise": (
+                "off", "yArr: Keep the pending surprise film", "mdi:heart"),
+            "input_boolean.yarr_keep_surprise_tv": (
+                "off", "yArr: Keep the pending surprise show", "mdi:heart"),
+        }
+        for entity_id, (default_state, name, icon) in defaults.items():
+            if not self.entity_exists(entity_id):
+                self.set_state(entity_id, state=default_state,
+                                attributes={"friendly_name": name, "icon": icon})
 
     # ------------------------------------------------------------------
     # LOCAL STATE
@@ -198,7 +225,7 @@ class Yarr(hass.Hass):
         if picks:
             self._save_state()
 
-    def on_surprise_now_pressed(self, entity, attribute, old, new, kwargs):
+    def on_surprise_now_pressed(self, event_name, data, kwargs):
         self._run_surprise_pick()
 
     def tick_surprise_check(self, kwargs):
@@ -315,7 +342,7 @@ class Yarr(hass.Hass):
         if picks:
             self._save_state()
 
-    def on_surprise_tv_now_pressed(self, entity, attribute, old, new, kwargs):
+    def on_surprise_tv_now_pressed(self, event_name, data, kwargs):
         self._run_tv_surprise_pick()
 
     def tick_tv_surprise_check(self, kwargs):
