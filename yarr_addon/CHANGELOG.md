@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.1
+
+- Radarr/Sonarr add failures now surface the actual response body in
+  the log (e.g. the real validation reason: bad root folder path,
+  already-added title, etc.) instead of just "HTTP 400", which made
+  every failure look identical and undebuggable from the log alone.
+
 ## 0.6.0
 
 - **Fixed 0.5.0's fix**: a real install showed HA's Config REST API

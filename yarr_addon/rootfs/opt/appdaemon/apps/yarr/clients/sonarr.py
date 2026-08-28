@@ -29,7 +29,16 @@ class SonarrClient:
                 raw = resp.read()
                 return resp.status, (json.loads(raw) if raw else None)
         except urllib.error.HTTPError as exc:
-            raise SonarrError(f"{method} {path} failed: HTTP {exc.code}") from exc
+            # Sonarr's error responses carry the real reason (e.g. a
+            # bad rootFolderPath, a missing languageProfileId) as a
+            # JSON body — surfacing only the status code here made every
+            # failure look identical and undebuggable from the log alone.
+            detail = ""
+            try:
+                detail = exc.read().decode("utf-8", errors="replace")
+            except Exception:  # noqa: BLE001 — best-effort, never let this mask the real error
+                pass
+            raise SonarrError(f"{method} {path} failed: HTTP {exc.code} {detail}".rstrip()) from exc
 
     def get_library_tvdb_ids(self) -> set:
         _, body = self._request("GET", "/series")
