@@ -43,6 +43,12 @@ yarr:
   surprise_min_days: 5
   surprise_max_days: 10
   surprise_tag: yarr-surprise
+  # When true (default), a surprise pick waits for Accept/Deny in the
+  # web UI before ever touching Radarr — nothing is added automatically
+  # until you approve it. Set to false to go back to auto-adding
+  # surprises outright. Shared with TV below — one approval model for
+  # both, not separately configurable per medium.
+  surprise_requires_approval: true
 
   # --- TV (Sonarr) — entirely opt-in: only runs once sonarr_url and
   # sonarr_api_key are set in the Configuration tab. Leave this whole
@@ -102,6 +108,13 @@ yarr:
   # profile. Applies to both movies and TV.
   excluded_genres:
     - horror
+
+  # Denying a surprise proposal in the web UI tallies each of its
+  # genres — once a genre has been denied this many times, it's added
+  # to the exclusion above automatically for future picks (movies and
+  # TV share the same tally). Only denials count; accepts are tracked
+  # for visibility but don't currently change what gets picked.
+  surprise_feedback_deny_threshold: 2
 
   # If true, discovery/surprise picks are computed and logged but never
   # actually added to Radarr/Sonarr — useful for checking your genre/

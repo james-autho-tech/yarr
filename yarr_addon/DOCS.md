@@ -23,7 +23,18 @@ Configuration tab (credentials):
    immediately — these fire a plain HA event (`yarr_surprise_me_now`/
    `yarr_surprise_tv_now`) rather than pressing a real `input_button`
    entity, so there's nothing to set up in HA for them to work.
-4. **Watch-and-delete** — once Jellyfin reports a *tagged surprise
+4. **Accept/Deny approval** (`surprise_requires_approval`, default
+   `true`) — a surprise pick is proposed in the web UI (title, year,
+   rating, genres) and never touches Radarr/Sonarr until you hit
+   **Accept**. Only one proposal is outstanding at a time — a new one
+   isn't picked until the current one is resolved. **Deny** tallies
+   that pick's genres; once a genre has been denied
+   `surprise_feedback_deny_threshold` times (default 2), it's
+   automatically excluded from future picks on top of
+   `excluded_genres` — this is genuinely learned from your decisions,
+   not just logged. Set `surprise_requires_approval: false` to go back
+   to auto-adding surprises outright with no gate.
+5. **Watch-and-delete** — once Jellyfin reports a *tagged surprise
    film* played past `completion_threshold_pct`, or a *tagged surprise
    show's last episode* crosses it (mid-series episodes don't count —
    yArr checks Jellyfin's own "fully watched" status for the series
@@ -34,8 +45,11 @@ Configuration tab (credentials):
    real helpers — see `ha_support.yaml` if you want them as real
    dashboard-toggleable ones instead), flipped on by that button before
    the grace period elapses to keep the title instead of deleting it.
-   This never touches your regular library or the genre auto-adds —
-   only titles yArr itself added and tagged.
+   Every tracked surprise also has its own **Delete** button in the web
+   UI for an immediate, unconditional removal regardless of watch
+   status — for "this was rubbish, get rid of it now." This never
+   touches your regular library or the genre auto-adds — only titles
+   yArr itself added and tagged.
 
 ## TMDB setup
 

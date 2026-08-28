@@ -14,14 +14,19 @@ monitoring — bundling its own AppDaemon runtime.
   Jellyfin library — watched/favourited items, weighted by play count.
 - **Surprise me**: on a random jittered cadence (roughly every 5–10
   days, configurable, separately for movies and TV), picks one more
-  title the same way, tags it so it's identifiable, and adds it — plus
-  manual "Surprise Me Now" buttons if you don't want to wait.
-- **Watch it, lose it**: once Jellyfin reports a surprise film played
-  past a completion threshold — or a surprise show's *last* episode
-  finishes — it's deleted after a configurable grace period (with a
-  notification and a "keep it instead" toggle) — never your regular
-  library or the genre auto-adds, only titles yArr itself tagged as a
-  surprise.
+  title the same way — plus manual "Surprise Me Now" buttons if you
+  don't want to wait.
+- **Accept/Deny**: a surprise pick is proposed in the web UI and never
+  touches Radarr/Sonarr until you Accept it. Deny it instead and yArr
+  tallies that pick's genres — deny a genre enough times and it's
+  automatically excluded from future picks, no config editing needed.
+- **Watch it, lose it**: once Jellyfin reports an accepted surprise
+  film played past a completion threshold — or a surprise show's
+  *last* episode finishes — it's deleted after a configurable grace
+  period (with a notification and a "keep it instead" toggle), or
+  delete it immediately yourself from the web UI any time. Never your
+  regular library or the genre auto-adds, only titles yArr itself
+  added and tagged as a surprise.
 - **SABnzbd monitoring (optional)**: read-only queue status (speed,
   ETA, active downloads) as an HA sensor and a web UI card — yArr never
   queues, pauses, or cancels anything in SABnzbd itself.

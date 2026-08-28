@@ -170,3 +170,59 @@ def test_add_log_event_persists_through_save_load(tmp_path):
     state.save(s, path)
     loaded = state.load(path)
     assert loaded.event_log == s.event_log
+
+
+def test_set_and_clear_pending_surprise():
+    s = state.YarrState()
+    proposal = state.PendingSurprise(tmdb_id=1, imdb_id="tt1", title="X", year=2020,
+                                      genres=["comedy"], rating=8.0, proposed_at="2026-01-01T00:00:00+00:00")
+    s = state.set_pending_surprise(s, proposal)
+    assert s.pending_surprise == proposal
+    s = state.clear_pending_surprise(s)
+    assert s.pending_surprise is None
+
+
+def test_set_and_clear_pending_tv_surprise():
+    s = state.YarrState()
+    proposal = state.PendingSurprise(tmdb_id=1, tvdb_id=100, title="Show", year=2020,
+                                      genres=["drama"], rating=7.5, proposed_at="2026-01-01T00:00:00+00:00")
+    s = state.set_pending_tv_surprise(s, proposal)
+    assert s.pending_tv_surprise == proposal
+    s = state.clear_pending_tv_surprise(s)
+    assert s.pending_tv_surprise is None
+
+
+def test_pending_surprise_persists_through_save_load(tmp_path):
+    s = state.YarrState()
+    proposal = state.PendingSurprise(tmdb_id=1, imdb_id="tt1", title="X", year=2020,
+                                      genres=["comedy", "action"], rating=8.0,
+                                      proposed_at="2026-01-01T00:00:00+00:00")
+    s = state.set_pending_surprise(s, proposal)
+    path = os.path.join(tmp_path, "yarr_state.json")
+    state.save(s, path)
+    loaded = state.load(path)
+    assert loaded.pending_surprise == proposal
+
+
+def test_record_genre_feedback_accept_and_deny_are_separate():
+    s = state.YarrState()
+    s = state.record_genre_feedback(s, ["Comedy", "Action"], accepted=True)
+    s = state.record_genre_feedback(s, ["Horror"], accepted=False)
+    assert s.accepted_genre_counts == {"comedy": 1, "action": 1}
+    assert s.denied_genre_counts == {"horror": 1}
+
+
+def test_record_genre_feedback_accumulates():
+    s = state.YarrState()
+    s = state.record_genre_feedback(s, ["horror"], accepted=False)
+    s = state.record_genre_feedback(s, ["horror", "war"], accepted=False)
+    assert s.denied_genre_counts == {"horror": 2, "war": 1}
+
+
+def test_denied_genres_over_threshold():
+    s = state.YarrState()
+    s = state.record_genre_feedback(s, ["horror"], accepted=False)
+    s = state.record_genre_feedback(s, ["horror"], accepted=False)
+    s = state.record_genre_feedback(s, ["war"], accepted=False)
+    assert state.denied_genres_over_threshold(s, threshold=2) == ["horror"]
+    assert set(state.denied_genres_over_threshold(s, threshold=1)) == {"horror", "war"}

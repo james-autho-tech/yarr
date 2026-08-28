@@ -79,6 +79,7 @@ def build_status():
 
         "learn_genres_from_library": attrs.get("learn_genres_from_library", False),
         "excluded_genres": attrs.get("excluded_genres", []),
+        "denied_genres": attrs.get("denied_genres", []),
         "effective_genres": attrs.get("effective_genres", []),
         "learned_genres": attrs.get("learned_genres", []),
 
@@ -88,6 +89,8 @@ def build_status():
         "keep_surprise": is_on(states.get("input_boolean.yarr_keep_surprise")),
         "recent_suggested": attrs.get("recent_suggested", []),
         "surprises": attrs.get("surprises", []),
+        "surprise_requires_approval": attrs.get("surprise_requires_approval", True),
+        "pending_surprise": attrs.get("pending_surprise"),
 
         "tv_enabled": attrs.get("tv_enabled", False),
         "suggested_shows_count": attrs.get("suggested_shows_count", 0),
@@ -98,6 +101,7 @@ def build_status():
         "learned_tv_genres": attrs.get("learned_tv_genres", []),
         "recent_suggested_shows": attrs.get("recent_suggested_shows", []),
         "surprise_shows": attrs.get("surprise_shows", []),
+        "pending_tv_surprise": attrs.get("pending_tv_surprise"),
 
         "sabnzbd_enabled": attrs.get("sabnzbd_enabled", False),
         "sabnzbd_status": sab.get("state", "unknown"),
@@ -192,6 +196,21 @@ table.list tr:last-child td{border-bottom:none}
 
 .keep-note{margin-top:12px;font-size:13px;color:var(--accent);font-weight:700}
 
+.proposal{background:var(--panel);border:2px solid var(--accent);border-radius:8px;
+          padding:16px 18px;margin-bottom:18px}
+.proposal .ptitle{font-size:18px;font-weight:800}
+.proposal .pmeta{color:var(--sub);font-size:13px;margin-top:2px}
+.proposal .pactions{display:flex;gap:10px;margin-top:14px}
+button.deny{background:transparent;color:var(--err);border:2px solid var(--err);
+            border-radius:6px;padding:12px 22px;font-weight:800;font-size:14px;cursor:pointer;
+            font-family:var(--sans);text-transform:uppercase;letter-spacing:.03em}
+button.deny:hover{background:var(--err);color:#1a0605}
+button.small-delete{background:transparent;color:var(--faint);border:1px solid var(--edge);
+                     border-radius:4px;padding:4px 10px;font-size:11px;font-weight:700;
+                     text-transform:uppercase;letter-spacing:.03em;cursor:pointer;
+                     font-family:var(--sans)}
+button.small-delete:hover{color:var(--err);border-color:var(--err)}
+
 .log-line{display:flex;gap:12px;padding:8px 4px;border-bottom:1px solid var(--edge);font-size:13px}
 .log-line:last-child{border-bottom:none}
 .log-ts{color:var(--faint);font-family:var(--mono);font-size:11.5px;white-space:nowrap;
@@ -271,12 +290,26 @@ function suggestedTable(rows) {
   </tbody></table>`;
 }
 
-function surpriseTable(rows) {
+function surpriseTable(rows, deleteFn) {
   if (!rows || !rows.length) return '<div class="empty-row">No surprise tracked right now.</div>';
-  return `<table class="list"><thead><tr><th>Title</th><th>Year</th><th>Status</th><th></th></tr></thead><tbody>
+  return `<table class="list"><thead><tr><th>Title</th><th>Year</th><th>Status</th><th></th><th></th></tr></thead><tbody>
     ${rows.map(r => `<tr><td class="title-cell">${esc(r.title)}</td><td class="year">${r.year||'—'}</td><td>${statusPill(r.status)}</td>
-      <td class="countdown">${r.status==='deleting_soon' ? timeUntil(r.delete_at) : ''}</td></tr>`).join('')}
+      <td class="countdown">${r.status==='deleting_soon' ? timeUntil(r.delete_at) : ''}</td>
+      <td><button class="small-delete" onclick="${deleteFn}(${JSON.stringify(r.id)})">Delete</button></td></tr>`).join('')}
   </tbody></table>`;
+}
+
+function proposalCard(pending, acceptFn, denyFn) {
+  if (!pending) return '';
+  return `<div class="proposal">
+    <div class="section-note" style="margin-bottom:6px">Awaiting your decision</div>
+    <div class="ptitle">${esc(pending.title)} ${pending.year ? '('+pending.year+')' : ''}</div>
+    <div class="pmeta">Rating ${(pending.rating||0).toFixed(1)} · ${(pending.genres||[]).map(esc).join(', ') || 'no genres listed'}</div>
+    <div class="pactions">
+      <button onclick="${acceptFn}()">Accept</button>
+      <button class="deny" onclick="${denyFn}()">Deny</button>
+    </div>
+  </div>`;
 }
 
 async function refresh() {
@@ -301,8 +334,10 @@ async function refresh() {
     <div class="mode-line">${genreMode}</div>
     ${chipsRow(d.effective_genres)}
     ${d.excluded_genres && d.excluded_genres.length ? `<div class="mode-line" style="margin-top:8px">Never suggested</div>${chipsRow(d.excluded_genres, 'off')}` : ''}
+    ${d.denied_genres && d.denied_genres.length ? `<div class="mode-line" style="margin-top:8px">Denied enough times to auto-suppress</div>${chipsRow(d.denied_genres, 'off')}` : ''}
+    ${proposalCard(d.pending_surprise, 'acceptSurprise', 'denySurprise')}
     <div style="margin:14px 0 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-      <button onclick="surpriseNow()">Surprise Me Now</button>
+      <button onclick="surpriseNow()" ${d.pending_surprise ? 'disabled' : ''}>Surprise Me Now</button>
       ${(d.surprises||[]).some(s => s.status === 'deleting_soon') ? (
         d.keep_surprise
           ? '<span class="keep-note">Pending deletion will be kept.</span>'
@@ -312,7 +347,7 @@ async function refresh() {
     <div class="section-note" style="margin-bottom:6px">Recently suggested</div>
     ${suggestedTable(d.recent_suggested)}
     <div class="section-note" style="margin:16px 0 6px">Tracked surprises</div>
-    ${surpriseTable(d.surprises)}
+    ${surpriseTable(d.surprises, 'deleteSurprise')}
   `;
 
   document.getElementById('nav-tv').style.display = d.tv_enabled ? '' : 'none';
@@ -331,8 +366,9 @@ async function refresh() {
       </div>
       <div class="mode-line">${tvGenreMode}</div>
       ${chipsRow(d.effective_tv_genres)}
+      ${proposalCard(d.pending_tv_surprise, 'acceptTvSurprise', 'denyTvSurprise')}
       <div style="margin:14px 0 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-        <button onclick="surpriseTvNow()">Surprise Me Now (TV)</button>
+        <button onclick="surpriseTvNow()" ${d.pending_tv_surprise ? 'disabled' : ''}>Surprise Me Now (TV)</button>
         ${(d.surprise_shows||[]).some(s => s.status === 'deleting_soon') ? (
           d.keep_surprise_tv
             ? '<span class="keep-note">Pending deletion will be kept.</span>'
@@ -342,7 +378,7 @@ async function refresh() {
       <div class="section-note" style="margin-bottom:6px">Recently suggested</div>
       ${suggestedTable(d.recent_suggested_shows)}
       <div class="section-note" style="margin:16px 0 6px">Tracked surprises</div>
-      ${surpriseTable(d.surprise_shows)}
+      ${surpriseTable(d.surprise_shows, 'deleteTvSurprise')}
     `;
   }
 
@@ -381,6 +417,12 @@ async function surpriseNow(){ await post('api/surprise-now'); refresh(); }
 async function surpriseTvNow(){ await post('api/surprise-tv-now'); refresh(); }
 async function keepSurprise(){ await post('api/keep-surprise'); refresh(); }
 async function keepSurpriseTv(){ await post('api/keep-surprise-tv'); refresh(); }
+async function acceptSurprise(){ await post('api/accept-surprise'); refresh(); }
+async function denySurprise(){ await post('api/deny-surprise'); refresh(); }
+async function acceptTvSurprise(){ await post('api/accept-surprise-tv'); refresh(); }
+async function denyTvSurprise(){ await post('api/deny-surprise-tv'); refresh(); }
+async function deleteSurprise(id){ if(!confirm('Delete this from Radarr now?')) return; await post('api/delete-surprise', {id}); refresh(); }
+async function deleteTvSurprise(id){ if(!confirm('Delete this from Sonarr now?')) return; await post('api/delete-surprise-tv', {id}); refresh(); }
 refresh();
 setInterval(refresh, 5000);
 </script>
@@ -398,6 +440,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         else:
             self._send(404, b"not found", "text/plain")
 
+    def _read_json_body(self):
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        raw = self.rfile.read(length) if length else b""
+        return json.loads(raw) if raw else {}
+
     def do_POST(self):
         path = self.path.split("?", 1)[0].rstrip("/")
         try:
@@ -414,6 +461,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
             elif path.endswith("/api/keep-surprise-tv"):
                 ha_set_state("input_boolean.yarr_keep_surprise_tv", "on",
                              {"friendly_name": "yArr: Keep the pending surprise show", "icon": "mdi:heart"})
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/accept-surprise"):
+                ha_fire_event("yarr_accept_surprise")
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/deny-surprise"):
+                ha_fire_event("yarr_deny_surprise")
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/accept-surprise-tv"):
+                ha_fire_event("yarr_accept_tv_surprise")
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/deny-surprise-tv"):
+                ha_fire_event("yarr_deny_tv_surprise")
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/delete-surprise"):
+                tmdb_id = self._read_json_body().get("id")
+                ha_fire_event("yarr_delete_surprise_now", {"tmdb_id": tmdb_id})
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/delete-surprise-tv"):
+                tvdb_id = self._read_json_body().get("id")
+                ha_fire_event("yarr_delete_tv_surprise_now", {"tvdb_id": tvdb_id})
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")

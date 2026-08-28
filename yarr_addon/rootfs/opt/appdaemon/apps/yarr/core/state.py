@@ -45,6 +45,20 @@ class SurpriseFilm:
 
 
 @dataclass(frozen=True)
+class PendingSurprise:
+    """A surprise pick awaiting accept/deny in the web UI — not yet
+    added to Radarr/Sonarr. tvdb_id is only set for a TV proposal."""
+    tmdb_id: int
+    tvdb_id: int = None
+    imdb_id: str = None
+    title: str = ""
+    year: int = None
+    genres: list = field(default_factory=list)
+    rating: float = 0.0
+    proposed_at: str = ""
+
+
+@dataclass(frozen=True)
 class SuggestedShow:
     tvdb_id: int
     tmdb_id: int = None
@@ -98,6 +112,17 @@ class YarrState:
     # add_log_event() so this file can't grow unbounded.
     event_log: list = field(default_factory=list)
 
+    # A surprise pick waits here for accept/deny in the web UI before
+    # ever touching Radarr/Sonarr — at most one outstanding per medium
+    # at a time (a new pick isn't proposed until the current one is
+    # resolved). Accept/deny feedback is tallied per genre (lowercased)
+    # so denied genres can be actively suppressed from future picks,
+    # not just logged — see yarr.py's _denied_genres().
+    pending_surprise: PendingSurprise = None
+    pending_tv_surprise: PendingSurprise = None
+    denied_genre_counts: dict = field(default_factory=dict)
+    accepted_genre_counts: dict = field(default_factory=dict)
+
 
 def _film_to_dict(film):
     return asdict(film)
@@ -147,6 +172,12 @@ def load(path: str) -> YarrState:
         learned_genres=list(raw.get("learned_genres", [])),
         learned_tv_genres=list(raw.get("learned_tv_genres", [])),
         event_log=list(raw.get("event_log", [])),
+        pending_surprise=(PendingSurprise(**raw["pending_surprise"])
+                          if raw.get("pending_surprise") else None),
+        pending_tv_surprise=(PendingSurprise(**raw["pending_tv_surprise"])
+                             if raw.get("pending_tv_surprise") else None),
+        denied_genre_counts=dict(raw.get("denied_genre_counts", {})),
+        accepted_genre_counts=dict(raw.get("accepted_genre_counts", {})),
     )
 
 
@@ -165,6 +196,11 @@ def save(state: YarrState, path: str) -> None:
         "learned_genres": state.learned_genres,
         "learned_tv_genres": state.learned_tv_genres,
         "event_log": state.event_log,
+        "pending_surprise": _film_to_dict(state.pending_surprise) if state.pending_surprise else None,
+        "pending_tv_surprise": (_film_to_dict(state.pending_tv_surprise)
+                                if state.pending_tv_surprise else None),
+        "denied_genre_counts": state.denied_genre_counts,
+        "accepted_genre_counts": state.accepted_genre_counts,
     }
     try:
         with open(path, "w") as f:
@@ -314,6 +350,43 @@ def add_log_event(state: YarrState, message: str, now: datetime,
     entry = {"ts": now.isoformat(), "level": level, "message": message}
     log = (state.event_log + [entry])[-limit:]
     return _replace(state, event_log=log)
+
+
+# ------------------------------------------------------------------
+# SURPRISE APPROVAL / GENRE FEEDBACK
+# ------------------------------------------------------------------
+
+def set_pending_surprise(state: YarrState, proposal: PendingSurprise) -> YarrState:
+    return _replace(state, pending_surprise=proposal)
+
+
+def clear_pending_surprise(state: YarrState) -> YarrState:
+    return _replace(state, pending_surprise=None)
+
+
+def set_pending_tv_surprise(state: YarrState, proposal: PendingSurprise) -> YarrState:
+    return _replace(state, pending_tv_surprise=proposal)
+
+
+def clear_pending_tv_surprise(state: YarrState) -> YarrState:
+    return _replace(state, pending_tv_surprise=None)
+
+
+def record_genre_feedback(state: YarrState, genres: list, accepted: bool) -> YarrState:
+    """Tallies one accept/deny decision against each of its genres
+    (lowercased). Denied counts are what yarr.py uses to actively
+    suppress a genre going forward (see denied_genres_over_threshold);
+    accepted counts are tracked for symmetry/visibility only."""
+    field_name = "accepted_genre_counts" if accepted else "denied_genre_counts"
+    counts = dict(getattr(state, field_name))
+    for g in genres:
+        key = str(g).lower()
+        counts[key] = counts.get(key, 0) + 1
+    return _replace(state, **{field_name: counts})
+
+
+def denied_genres_over_threshold(state: YarrState, threshold: int) -> list:
+    return [g for g, count in state.denied_genre_counts.items() if count >= threshold]
 
 
 def _replace(state: YarrState, **changes) -> YarrState:

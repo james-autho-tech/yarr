@@ -59,12 +59,18 @@ class Yarr(hass.Hass):
         # install showed HA's Config REST API 404s on input_boolean/
         # input_button (modern HA moved simple helpers to a config-entry
         # flow that endpoint doesn't serve; only automation/scene/script
-        # still support it), so buttons are pressed by the web UI firing
-        # a bare event via POST /api/events/<type> instead, which needs
+        # still support it), so the web UI drives all of this by firing
+        # bare events via POST /api/events/<type> instead, which needs
         # no entity to exist at all.
         self.listen_event(self.on_surprise_now_pressed, "yarr_surprise_me_now")
+        self.listen_event(self.on_accept_surprise, "yarr_accept_surprise")
+        self.listen_event(self.on_deny_surprise, "yarr_deny_surprise")
+        self.listen_event(self.on_delete_surprise_now, "yarr_delete_surprise_now")
         if self.cfg.tv_enabled:
             self.listen_event(self.on_surprise_tv_now_pressed, "yarr_surprise_tv_now")
+            self.listen_event(self.on_accept_tv_surprise, "yarr_accept_tv_surprise")
+            self.listen_event(self.on_deny_tv_surprise, "yarr_deny_tv_surprise")
+            self.listen_event(self.on_delete_tv_surprise_now, "yarr_delete_tv_surprise_now")
         self.listen_event(self.on_jellyfin_webhook, "yarr_jellyfin_webhook")
 
         self.run_every(self.tick_discovery, "now", self.cfg.discovery_interval_hours * 3600)
@@ -151,6 +157,15 @@ class Yarr(hass.Hass):
         if self.cfg.learn_genres_from_library and self.state_data.learned_tv_genres:
             return self.state_data.learned_tv_genres
         return self.cfg.tv_genres
+
+    def _denied_genres(self):
+        """Genres denied at least surprise_feedback_deny_threshold times
+        via the web UI's Deny button — actively excluded from future
+        surprise picks on top of the configured excluded_genres, not
+        just logged. Only ever affects surprises, never the regular
+        genre auto-add (which the user never explicitly rejected)."""
+        return core_state.denied_genres_over_threshold(
+            self.state_data, self.cfg.surprise_feedback_deny_threshold)
 
     # ------------------------------------------------------------------
     # WATCHED-CACHE / TASTE RESYNC — shared cadence for movies + TV
@@ -239,8 +254,12 @@ class Yarr(hass.Hass):
     def _run_surprise_pick(self):
         if self.missing_secrets:
             return
+        if self.cfg.surprise_requires_approval and self.state_data.pending_surprise is not None:
+            self._log_event("A surprise proposal is already awaiting accept/deny — skipping.")
+            return
         now = datetime.now(timezone.utc)
         genres = self.cfg.surprise_genres if self.cfg.surprise_genres is not None else self._effective_genres()
+        excluded = list(self.cfg.excluded_genres) + self._denied_genres()
         try:
             self._resync_watched_and_taste_if_stale(now)
             candidates = self.tmdb.discover(genres, self.cfg.min_rating)
@@ -255,7 +274,7 @@ class Yarr(hass.Hass):
             radarr_tmdb_ids=radarr_ids,
             already_suggested_tmdb_ids={int(k) for k in self.state_data.suggested} |
                                         {int(k) for k in self.state_data.surprises},
-            excluded_genres=self.cfg.excluded_genres)
+            excluded_genres=excluded)
         pick = core_discovery.pick_surprise(pool, exclude_tmdb_ids=set())
 
         window = core_surprise.SurpriseWindow(self.cfg.surprise_min_days, self.cfg.surprise_max_days)
@@ -265,6 +284,25 @@ class Yarr(hass.Hass):
             self._log_event("No surprise candidate matched your filters this time.")
             return
 
+        if self.cfg.surprise_requires_approval:
+            proposal = core_state.PendingSurprise(
+                tmdb_id=pick.tmdb_id, imdb_id=pick.imdb_id, title=pick.title, year=pick.year,
+                genres=list(pick.genres), rating=pick.rating, proposed_at=now.isoformat())
+            self.state_data = core_state.set_pending_surprise(self.state_data, proposal)
+            self._log_event(f"Proposed surprise: {pick.title!r} ({pick.year}) — "
+                             "accept or deny in the web UI.")
+            self.call_service(
+                "persistent_notification/create", title="yArr surprise proposed",
+                message=f"{pick.title} ({pick.year}) — check yArr's web UI to accept or deny.")
+            return
+
+        self._add_surprise_movie(pick, now)
+
+    def _add_surprise_movie(self, pick, now):
+        """pick may be a core_discovery.Candidate (approval disabled)
+        or a core_state.PendingSurprise (approval accepted) — both
+        carry the tmdb_id/title/year/imdb_id fields add_movie() and
+        record_surprise_added() need."""
         radarr_movie_id = None
         imdb_id = pick.imdb_id
         if not self.cfg.dry_run:
@@ -278,14 +316,15 @@ class Yarr(hass.Hass):
             except RadarrError as exc:
                 self._log_event(f"Could not add surprise {pick.title!r} to Radarr: {exc}", level="error")
                 return
-            try:
-                # A surprise film's imdb_id is worth the extra call (unlike
-                # regular suggestions, which never get deleted) — it's the
-                # fallback match key if a Jellyfin webhook payload ever
-                # omits Provider_tmdb.
-                imdb_id = self.tmdb.get_imdb_id(pick.tmdb_id)
-            except TMDBError:
-                pass
+            if not imdb_id:
+                try:
+                    # Worth the extra call now (unlike regular
+                    # suggestions, which never get deleted) — it's the
+                    # fallback match key if a Jellyfin webhook payload
+                    # ever omits Provider_tmdb.
+                    imdb_id = self.tmdb.get_imdb_id(pick.tmdb_id)
+                except TMDBError:
+                    pass
 
         self._log_event(f"Surprise: {pick.title!r} ({pick.year})")
         self.state_data = core_state.record_surprise_added(
@@ -294,6 +333,43 @@ class Yarr(hass.Hass):
         self._save_state()
         self.call_service("persistent_notification/create", title="yArr surprise",
                            message=f"Tonight's surprise: {pick.title} ({pick.year})")
+
+    def on_accept_surprise(self, event_name, data, kwargs):
+        pending = self.state_data.pending_surprise
+        if pending is None:
+            return
+        now = datetime.now(timezone.utc)
+        self.state_data = core_state.record_genre_feedback(self.state_data, pending.genres, accepted=True)
+        self.state_data = core_state.clear_pending_surprise(self.state_data)
+        self._add_surprise_movie(pending, now)
+
+    def on_deny_surprise(self, event_name, data, kwargs):
+        pending = self.state_data.pending_surprise
+        if pending is None:
+            return
+        self.state_data = core_state.record_genre_feedback(self.state_data, pending.genres, accepted=False)
+        self.state_data = core_state.clear_pending_surprise(self.state_data)
+        self._log_event(f"Denied surprise: {pending.title!r} "
+                         f"(genres: {', '.join(pending.genres) or 'none'}).")
+
+    def on_delete_surprise_now(self, event_name, data, kwargs):
+        """Immediate manual delete of an already-added surprise —
+        independent of the watched/grace-period flow, for "this was
+        rubbish, get rid of it now" regardless of watch status."""
+        tmdb_id = (data or {}).get("tmdb_id")
+        if tmdb_id is None:
+            return
+        film = self.state_data.surprises.get(str(tmdb_id))
+        if film is None:
+            return
+        if not self.cfg.dry_run and film.radarr_movie_id is not None:
+            try:
+                self.radarr.delete_movie(film.radarr_movie_id)
+            except RadarrError as exc:
+                self._log_event(f"Could not delete {film.title!r} from Radarr: {exc}", level="error")
+                return
+        self.state_data = core_state.confirm_deleted(self.state_data, int(tmdb_id))
+        self._log_event(f"Deleted {film.title!r} — removed manually.")
 
     # ------------------------------------------------------------------
     # TV DISCOVERY / SURPRISE (opt-in — only wired up when cfg.tv_enabled)
@@ -356,9 +432,13 @@ class Yarr(hass.Hass):
     def _run_tv_surprise_pick(self):
         if self.missing_secrets or not self.cfg.tv_enabled:
             return
+        if self.cfg.surprise_requires_approval and self.state_data.pending_tv_surprise is not None:
+            self._log_event("A TV surprise proposal is already awaiting accept/deny — skipping.")
+            return
         now = datetime.now(timezone.utc)
         genres = (self.cfg.tv_surprise_genres if self.cfg.tv_surprise_genres is not None
                   else self._effective_tv_genres())
+        excluded = list(self.cfg.excluded_genres) + self._denied_genres()
         try:
             self._resync_watched_and_taste_if_stale(now)
             candidates = self.tmdb.discover_tv(genres, self.cfg.tv_min_rating)
@@ -373,7 +453,7 @@ class Yarr(hass.Hass):
             radarr_tmdb_ids=sonarr_ids,
             already_suggested_tmdb_ids={int(k) for k in self.state_data.suggested_shows} |
                                         {int(k) for k in self.state_data.surprises_shows},
-            key="tvdb_id", excluded_genres=self.cfg.excluded_genres)
+            key="tvdb_id", excluded_genres=excluded)
         pick = core_discovery.pick_surprise(pool, exclude_tmdb_ids=set(), key="tvdb_id")
 
         window = core_surprise.SurpriseWindow(self.cfg.tv_surprise_min_days, self.cfg.tv_surprise_max_days)
@@ -383,6 +463,25 @@ class Yarr(hass.Hass):
             self._log_event("No TV surprise candidate matched your filters this time.")
             return
 
+        if self.cfg.surprise_requires_approval:
+            proposal = core_state.PendingSurprise(
+                tmdb_id=pick.tmdb_id, tvdb_id=pick.tvdb_id, imdb_id=pick.imdb_id, title=pick.title,
+                year=pick.year, genres=list(pick.genres), rating=pick.rating, proposed_at=now.isoformat())
+            self.state_data = core_state.set_pending_tv_surprise(self.state_data, proposal)
+            self._log_event(f"Proposed TV surprise: {pick.title!r} ({pick.year}) — "
+                             "accept or deny in the web UI.")
+            self.call_service(
+                "persistent_notification/create", title="yArr TV surprise proposed",
+                message=f"{pick.title} ({pick.year}) — check yArr's web UI to accept or deny.")
+            return
+
+        self._add_surprise_show(pick, now)
+
+    def _add_surprise_show(self, pick, now):
+        """pick may be a core_discovery.TVCandidate (approval disabled)
+        or a core_state.PendingSurprise (approval accepted) — both
+        carry the tvdb_id/tmdb_id/title/year/imdb_id fields
+        add_series()/record_surprise_show_added() need."""
         sonarr_series_id = None
         if not self.cfg.dry_run:
             try:
@@ -403,6 +502,40 @@ class Yarr(hass.Hass):
         self._save_state()
         self.call_service("persistent_notification/create", title="yArr TV surprise",
                            message=f"Tonight's surprise show: {pick.title} ({pick.year})")
+
+    def on_accept_tv_surprise(self, event_name, data, kwargs):
+        pending = self.state_data.pending_tv_surprise
+        if pending is None:
+            return
+        now = datetime.now(timezone.utc)
+        self.state_data = core_state.record_genre_feedback(self.state_data, pending.genres, accepted=True)
+        self.state_data = core_state.clear_pending_tv_surprise(self.state_data)
+        self._add_surprise_show(pending, now)
+
+    def on_deny_tv_surprise(self, event_name, data, kwargs):
+        pending = self.state_data.pending_tv_surprise
+        if pending is None:
+            return
+        self.state_data = core_state.record_genre_feedback(self.state_data, pending.genres, accepted=False)
+        self.state_data = core_state.clear_pending_tv_surprise(self.state_data)
+        self._log_event(f"Denied TV surprise: {pending.title!r} "
+                         f"(genres: {', '.join(pending.genres) or 'none'}).")
+
+    def on_delete_tv_surprise_now(self, event_name, data, kwargs):
+        tvdb_id = (data or {}).get("tvdb_id")
+        if tvdb_id is None or not self.cfg.tv_enabled:
+            return
+        show = self.state_data.surprises_shows.get(str(tvdb_id))
+        if show is None:
+            return
+        if not self.cfg.dry_run and show.sonarr_series_id is not None:
+            try:
+                self.sonarr.delete_series(show.sonarr_series_id)
+            except SonarrError as exc:
+                self._log_event(f"Could not delete {show.title!r} from Sonarr: {exc}", level="error")
+                return
+        self.state_data = core_state.confirm_show_deleted(self.state_data, int(tvdb_id))
+        self._log_event(f"Deleted {show.title!r} — removed manually.")
 
     # ------------------------------------------------------------------
     # JELLYFIN WEBHOOK (movie PlaybackStop + episode PlaybackStop) / DELETE GUARD
@@ -550,15 +683,23 @@ class Yarr(hass.Hass):
         rows = sorted(suggested_dict.values(), key=lambda f: f.suggested_at, reverse=True)
         return [{"title": f.title, "year": f.year, "decision": f.decision} for f in rows[:limit]]
 
-    def _surprise_rows(self, surprises_dict):
+    def _surprise_rows(self, surprises_dict, id_field="tmdb_id"):
         rows = sorted(surprises_dict.values(), key=lambda f: f.added_at, reverse=True)
         out = []
         for f in rows:
-            row = {"title": f.title, "year": f.year, "status": self._film_status(f)}
+            row = {"id": getattr(f, id_field), "title": f.title, "year": f.year,
+                   "status": self._film_status(f)}
             if f.pending_deletion:
                 row["delete_at"] = f.pending_deletion.delete_at
             out.append(row)
         return out
+
+    @staticmethod
+    def _pending_row(pending):
+        if pending is None:
+            return None
+        return {"title": pending.title, "year": pending.year, "rating": pending.rating,
+                "genres": pending.genres}
 
     def publish_status(self, kwargs):
         attrs = {
@@ -570,10 +711,13 @@ class Yarr(hass.Hass):
             "sabnzbd_enabled": self.cfg.sabnzbd_enabled,
             "learn_genres_from_library": self.cfg.learn_genres_from_library,
             "excluded_genres": self.cfg.excluded_genres,
+            "denied_genres": self._denied_genres(),
             "effective_genres": self._effective_genres(),
             "learned_genres": self.state_data.learned_genres,
             "recent_suggested": self._recent_suggested(self.state_data.suggested),
-            "surprises": self._surprise_rows(self.state_data.surprises),
+            "surprises": self._surprise_rows(self.state_data.surprises, id_field="tmdb_id"),
+            "surprise_requires_approval": self.cfg.surprise_requires_approval,
+            "pending_surprise": self._pending_row(self.state_data.pending_surprise),
             "log": list(reversed(self.state_data.event_log[-30:])),
         }
         if self.cfg.tv_enabled:
@@ -584,7 +728,8 @@ class Yarr(hass.Hass):
                 "effective_tv_genres": self._effective_tv_genres(),
                 "learned_tv_genres": self.state_data.learned_tv_genres,
                 "recent_suggested_shows": self._recent_suggested(self.state_data.suggested_shows),
-                "surprise_shows": self._surprise_rows(self.state_data.surprises_shows),
+                "surprise_shows": self._surprise_rows(self.state_data.surprises_shows, id_field="tvdb_id"),
+                "pending_tv_surprise": self._pending_row(self.state_data.pending_tv_surprise),
             })
         self.set_state("sensor.yarr_status",
                         state="Not Configured" if self.missing_secrets else "OK",

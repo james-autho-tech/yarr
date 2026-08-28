@@ -36,6 +36,14 @@ class YarrConfig:
     surprise_min_days: float = 5.0
     surprise_max_days: float = 10.0
     surprise_tag: str = "yarr-surprise"
+    # When true (default), a surprise pick waits for Accept/Deny in the
+    # web UI before ever touching Radarr/Sonarr, instead of being added
+    # automatically. Shared with TV — one approval model for both.
+    surprise_requires_approval: bool = True
+    # A genre denied at least this many times is actively excluded from
+    # future surprise picks (movies and TV both draw from the same
+    # feedback tally — see core/state.denied_genres_over_threshold).
+    surprise_feedback_deny_threshold: int = 2
 
     # --- apps.yaml (non-secret behaviour) — TV, opt-in via sonarr_url/
     # sonarr_api_key being set. Threshold/grace-period/resync cadence
@@ -131,6 +139,8 @@ def build_config(apps_yaml_dict: dict, secrets_dict: dict) -> YarrConfig:
         surprise_min_days=float(a.get("surprise_min_days", 5.0)),
         surprise_max_days=float(a.get("surprise_max_days", 10.0)),
         surprise_tag=str(a.get("surprise_tag", "yarr-surprise")),
+        surprise_requires_approval=bool(a.get("surprise_requires_approval", True)),
+        surprise_feedback_deny_threshold=int(a.get("surprise_feedback_deny_threshold", 2)),
 
         tv_genres=tv_genres,
         tv_min_rating=float(a.get("tv_min_rating", 7.0)),

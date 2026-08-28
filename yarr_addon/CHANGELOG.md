@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.0
+
+- **Surprise picks now require Accept/Deny approval by default**
+  (`surprise_requires_approval: true`). A pick is proposed in the web
+  UI (title, year, rating, genres) and never touches Radarr/Sonarr
+  until accepted; only one proposal is outstanding at a time. Set to
+  `false` to restore the old auto-add-outright behaviour.
+- **Denying a proposal actually teaches yArr something**: each denied
+  pick's genres are tallied, and once a genre crosses
+  `surprise_feedback_deny_threshold` (default 2) denials, it's
+  automatically excluded from future picks on top of
+  `excluded_genres` — a real feedback loop, not just a log entry.
+- Added a **Delete** button on every tracked surprise in the web UI —
+  immediate, unconditional removal from Radarr/Sonarr regardless of
+  watch status, independent of the watch-triggered grace-period flow.
+
 ## 0.6.1
 
 - Radarr/Sonarr add failures now surface the actual response body in
