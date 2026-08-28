@@ -29,8 +29,6 @@ monitoring — bundling its own AppDaemon runtime.
 TV/Sonarr and SABnzbd are both entirely opt-in — leave their
 Configuration-tab fields blank to run movies-only with no monitoring.
 
-v1 is a Supervisor add-on only — no separate HACS install path.
-
 ## Install
 
 Settings → Add-ons → Add-on Store → ⋮ → **Repositories** → add
