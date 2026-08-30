@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.2
+
+- Fixed the Duplicates tab's per-file **Delete** button doing nothing:
+  a file path JSON-encodes to a double-quoted string, which collided
+  with the double-quoted `onclick="..."` attribute it was embedded in
+  and silently truncated the handler. Numeric-id delete buttons
+  (surprises) never hit this since `JSON.stringify()` on a number has
+  no quotes to collide with.
+
 ## 0.9.1
 
 - Deleting a duplicate file now also: removes any now-empty parent

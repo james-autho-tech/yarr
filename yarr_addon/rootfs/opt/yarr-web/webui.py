@@ -271,6 +271,7 @@ async function post(path, body) {
   return r.json();
 }
 function esc(s){return String(s==null?'':s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function escAttr(s){return esc(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function fmtDate(iso){ return iso ? new Date(iso).toLocaleString(undefined,{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '—'; }
 function timeUntil(iso){
   if(!iso) return '';
@@ -435,7 +436,7 @@ async function refresh() {
       ${groups.length ? groups.map(g => `
         <table class="list" style="margin-bottom:14px"><thead><tr><th>File</th><th>Size</th><th></th></tr></thead><tbody>
           ${g.map(f => `<tr><td class="title-cell" title="${esc(f.path)}">${esc(baseName(f.path))}</td><td class="year">${fmtBytes(f.size)}</td>
-            <td><button class="small-delete" onclick="deleteDuplicateFile(${JSON.stringify(f.path)})">Delete</button></td></tr>`).join('')}
+            <td><button class="small-delete" onclick="deleteDuplicateFile(${escAttr(JSON.stringify(f.path))})">Delete</button></td></tr>`).join('')}
         </tbody></table>
       `).join('') : '<div class="empty-row">No duplicate groups found.</div>'}
     `;
