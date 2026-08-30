@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.14.0
+
+- Added a **Library** tab: search TMDB for any movie/show and add it
+  with one click (reuses your existing root folder/quality profile
+  config, same add path as genre auto-add and surprises), and browse/
+  manage your **entire** existing Radarr/Sonarr library — not just
+  what yArr itself suggested or surprised you with — with size, year,
+  and a client-side filter box. Search is press-Search-and-wait, not
+  live-as-you-type: the web UI and AppDaemon never talk to each other
+  directly (every action round-trips through an HA event), so a
+  keystroke-by-keystroke search isn't feasible without giving the web
+  UI its own direct TMDB access, which would break that architecture.
+- **Deleting from the full library is off by default** — it can remove
+  a movie/show you've had for years, never touched by yArr at all, a
+  much bigger blast radius than anything else yArr deletes. Requires
+  `allow_library_delete: true` in `apps.yaml` on top of the web UI's
+  own confirm dialog before the Delete buttons in the Library tab do
+  anything; the tab explains this and shows the buttons disabled until
+  it's set.
+- Library data refreshes automatically every `library_refresh_interval_hours`
+  (default 1h — cheap, just a Radarr/Sonarr GET each, no NAS
+  filesystem walk) or on demand via the tab's **Refresh Library**
+  button.
+
 ## 0.13.1
 
 - **Junk detection got three real safety gates, after a genuine

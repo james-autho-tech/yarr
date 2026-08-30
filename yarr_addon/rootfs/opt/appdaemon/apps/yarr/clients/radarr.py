@@ -43,6 +43,19 @@ class RadarrClient:
         _, body = self._request("GET", "/movie")
         return {m["tmdbId"] for m in (body or [])}
 
+    def get_library_movies(self) -> list:
+        """Full-object library listing for the web UI's Library tab —
+        title/year/size/monitored, everything get_library_tmdb_ids()
+        throws away. Kept separate from that method rather than
+        building on top of it, so the existing (load-bearing) call
+        path is never touched."""
+        _, movies = self._request("GET", "/movie")
+        return [{
+            "id": m["id"], "tmdb_id": m.get("tmdbId"), "title": m.get("title", ""),
+            "year": m.get("year"), "monitored": bool(m.get("monitored", False)),
+            "size": (m.get("movieFile") or {}).get("size", 0),
+        } for m in (movies or [])]
+
     def resolve_quality_profile_id(self, name: str) -> int:
         _, body = self._request("GET", "/qualityprofile")
         for p in body or []:

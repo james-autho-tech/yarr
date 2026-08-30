@@ -85,6 +85,19 @@ BASE_STATUS_ATTRS = {
     "junk_count": 1,
     "junk_bytes": 1_500_000_000,
     "junk_scan_at": "2026-08-30T17:00:00+00:00",
+    "library_movies": [{"id": 1, "tmdb_id": 111, "title": "Existing Movie", "year": 2019,
+                         "monitored": True, "size": 3_000_000_000}],
+    "library_movie_count": 1,
+    "library_shows": [{"id": 2, "tvdb_id": 222, "title": "Existing Show", "year": 2018,
+                        "monitored": True, "size": 5_000_000_000}],
+    "library_show_count": 1,
+    "library_synced_at": "2026-08-30T17:00:00+00:00",
+    "last_search_query": "Some Query",
+    "last_search_media_type": "movie",
+    "last_search_results": [{"tmdb_id": 999, "tvdb_id": None, "title": "New Movie",
+                              "year": 2024, "rating": 7.8, "in_library": False}],
+    "last_search_at": "2026-08-30T17:00:00+00:00",
+    "allow_library_delete": True,
     "log": [{"ts": "2026-08-30T17:00:00+00:00", "level": "info", "message": "Initial state."}],
 }
 
@@ -162,7 +175,7 @@ def test_page_loads_all_tabs_no_errors(browser_page):
     try:
         page.goto(f"http://127.0.0.1:{port}/")
         page.wait_for_selector("text=Surprise Me Now")
-        for tab in ["Movies", "TV", "SABnzbd", "Cleanup", "Log"]:
+        for tab in ["Movies", "TV", "Library", "SABnzbd", "Cleanup", "Log"]:
             page.click(f"button.tab-btn:has-text('{tab}')")
         assert errors == []
     finally:
@@ -214,6 +227,48 @@ def test_every_action_button_fires_and_does_not_crash(browser_page):
         assert "yarr_delete_duplicate_file" in fired_names
         assert "yarr_delete_junk_entry" in fired_names
         assert "set_state:input_boolean.yarr_keep_surprise" in fired_names
+    finally:
+        httpd.shutdown()
+
+
+def test_library_search_add_delete_and_filter(browser_page):
+    page, errors = browser_page
+    backend = FakeBackend()
+    httpd, port = start_server(backend)
+    try:
+        page.goto(f"http://127.0.0.1:{port}/")
+        page.wait_for_selector("text=Surprise Me Now")
+        page.click("button.tab-btn:has-text('Library')")
+        library = page.locator("#library-section")
+
+        page.fill("#library-search-input", "another query")
+        library.get_by_role("button", name="Search", exact=True).click()
+        page.wait_for_timeout(1500)
+
+        library.get_by_role("button", name="Add", exact=True).click()
+        page.wait_for_timeout(1500)
+
+        library.get_by_role("button", name="Refresh Library", exact=True).click()
+        page.wait_for_timeout(1500)
+
+        # Filtering must not touch the input's own value or the search
+        # box — this is the whole point of keeping them out of the
+        # innerHTML rebuild in refresh().
+        page.fill("#library-filter-input", "Existing Movie")
+        page.wait_for_timeout(200)
+        assert library.locator("tbody#library-movies-body tr").count() == 1
+        assert page.input_value("#library-filter-input") == "Existing Movie"
+
+        page.fill("#library-filter-input", "")
+        library.get_by_role("button", name="Delete", exact=True).first.click()
+        page.wait_for_timeout(1500)
+
+        assert errors == []
+        fired_names = [e for e, _ in backend.fired]
+        assert "yarr_search_media" in fired_names
+        assert "yarr_request_add_movie" in fired_names
+        assert "yarr_refresh_library" in fired_names
+        assert "yarr_library_delete_movie" in fired_names
     finally:
         httpd.shutdown()
 

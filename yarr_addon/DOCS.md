@@ -154,6 +154,45 @@ curl -X POST '<your HA base URL>/api/webhook/yarr_playback_stop' \
        "PlaybackPercentage":"97","SeriesId":"<the Jellyfin item id of a tracked surprise series>"}'
 ```
 
+## Library: search, request, and manage your existing collection
+
+The **Library** tab is always on (no config needed to enable it) and
+has two parts.
+
+**Search & Request**: type a movie or show title and press Search
+(there's no live-as-you-type search — see "Why isn't search instant"
+below). Each result shows either a **Add** button or an **In library**
+badge if you already have it. Add uses the exact same path as genre
+auto-add and surprise picks: your configured `radarr_root_folder`/
+`radarr_quality_profile_name` (or the Sonarr equivalents), immediately
+searched for on add — no separate "request queue" or approval step,
+since this is a single-user tool, not a multi-user request system.
+
+**Your Library**: every movie/show already in Radarr (and Sonarr, if
+enabled) — not just what yArr itself suggested or surprised you with
+— with title, year, size on disk, and a text box that filters the
+table client-side as you type (no server round-trip). Refreshes
+automatically every `library_refresh_interval_hours` (default 1h —
+cheap, a single Radarr/Sonarr GET each, no NAS filesystem walk) or on
+demand via **Refresh Library**.
+
+**Deleting from your library is off by default.** Every other delete
+in yArr only ever touches something yArr itself added (a surprise, a
+duplicate file, a junk folder). A full-library delete can remove a
+movie or show you've owned and organized for years, that yArr has
+never touched at all — a real step up in blast radius. Set
+`allow_library_delete: true` in `apps.yaml` to enable the Delete
+buttons here; until then they're shown disabled with a note explaining
+why. Even once enabled, every delete still needs its own confirm in
+the web UI, same as everywhere else.
+
+**Why isn't search instant?** yArr's web UI and its AppDaemon engine
+deliberately never talk to each other directly — every button press
+fires a Home Assistant event and polls for the result, which is far
+too slow to do on every keystroke. Type your query, press Search, and
+results appear a couple of seconds later, the same way every other
+action in yArr works.
+
 ## SABnzbd monitoring (optional)
 
 Set `sabnzbd_url`/`sabnzbd_api_key` in the Configuration tab. Once both

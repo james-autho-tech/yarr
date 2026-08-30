@@ -27,6 +27,13 @@ monitoring — bundling its own AppDaemon runtime.
   delete it immediately yourself from the web UI any time. Never your
   regular library or the genre auto-adds, only titles yArr itself
   added and tagged as a surprise.
+- **Library**: search TMDB for anything and add it with one click
+  (same root folder/quality profile as genre auto-add), and browse/
+  manage your *entire* existing Radarr/Sonarr library — not just what
+  yArr itself suggested — with a filterable table. Deleting from the
+  full library is off by default (`allow_library_delete: true` to
+  enable it) since it can remove something you've had for years,
+  unlike every other delete in yArr.
 - **SABnzbd monitoring (optional)**: read-only queue status (speed,
   ETA, active downloads) as an HA sensor and a web UI card — yArr never
   queues, pauses, or cancels anything in SABnzbd itself.

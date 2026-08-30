@@ -108,6 +108,14 @@ class YarrConfig:
     # abandoned one at a glance — could get deleted mid-extraction.
     junk_min_age_hours: float = 1.0
 
+    # Library tab: full-existing-library browse + request hub. Search/
+    # browse/add are always available; delete-from-library is a much
+    # bigger blast radius than anything else yArr deletes (a movie/show
+    # you've had for years, never touched by yArr) — off by default,
+    # requires this explicit opt-in on top of the web UI's own confirm.
+    library_refresh_interval_hours: float = 1.0
+    allow_library_delete: bool = False
+
     # --- addon_secrets.json (config.yaml options — never in apps.yaml) ---
     radarr_url: str = ""
     radarr_api_key: str = ""
@@ -206,6 +214,9 @@ def build_config(apps_yaml_dict: dict, secrets_dict: dict) -> YarrConfig:
         media_scan_min_size_mb=float(a.get("media_scan_min_size_mb", 50.0)),
         media_scan_interval_hours=float(a.get("media_scan_interval_hours", 24.0)),
         junk_min_age_hours=float(a.get("junk_min_age_hours", 1.0)),
+
+        library_refresh_interval_hours=float(a.get("library_refresh_interval_hours", 1.0)),
+        allow_library_delete=bool(a.get("allow_library_delete", False)),
 
         radarr_url=str(s.get("radarr_url", "")),
         radarr_api_key=str(s.get("radarr_api_key", "")),

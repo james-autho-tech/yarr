@@ -147,6 +147,20 @@ yarr:
   # needs a button press in the Cleanup tab.
   junk_min_age_hours: 1
 
+  # --- Library tab (search-and-request hub + full-library manager) ---
+  # Search/browse/add are always available; refreshed automatically
+  # this often (cheap — a Radarr/Sonarr GET each, no NAS walk) or
+  # on-demand via the tab's Refresh Library button.
+  library_refresh_interval_hours: 1
+
+  # Deleting from the FULL library (not just a yArr-added surprise) is
+  # off by default — it can remove a movie/show you've had for years,
+  # never touched by yArr at all, a much bigger blast radius than
+  # anything else yArr deletes. Set to true to enable the Delete
+  # buttons in the Library tab (still needs the web UI's own confirm
+  # on top of this).
+  allow_library_delete: false
+
   # If true, discovery/surprise picks are computed and logged but never
   # actually added to Radarr/Sonarr — useful for checking your genre/
   # rating settings are producing sensible picks before trusting it

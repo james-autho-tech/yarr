@@ -45,6 +45,18 @@ class SonarrClient:
         _, body = self._request("GET", "/series")
         return {s["tvdbId"] for s in (body or []) if s.get("tvdbId")}
 
+    def get_library_series(self) -> list:
+        """Full-object library listing for the web UI's Library tab —
+        mirrors radarr.get_library_movies(). Kept separate from
+        get_library_tvdb_ids() so that existing (load-bearing) call
+        path is never touched."""
+        _, series_list = self._request("GET", "/series")
+        return [{
+            "id": s["id"], "tvdb_id": s.get("tvdbId"), "title": s.get("title", ""),
+            "year": s.get("year"), "monitored": bool(s.get("monitored", False)),
+            "size": (s.get("statistics") or {}).get("sizeOnDisk", 0),
+        } for s in (series_list or []) if s.get("tvdbId")]
+
     def resolve_quality_profile_id(self, name: str) -> int:
         _, body = self._request("GET", "/qualityprofile")
         for p in body or []:

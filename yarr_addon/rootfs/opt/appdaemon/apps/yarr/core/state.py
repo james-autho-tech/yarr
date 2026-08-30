@@ -147,6 +147,26 @@ class YarrState:
     junk_entries: list = field(default_factory=list)
     junk_scan_at: str = None
 
+    # Full existing Radarr/Sonarr library (Library tab) — everything
+    # already in your library, not just what yArr itself suggested or
+    # surprised you with. Refreshed periodically and on demand (see
+    # yarr.py's tick_refresh_library); a plain list of {"id", "tmdb_id"
+    # or "tvdb_id", "title", "year", "monitored", "size"} dicts.
+    library_movies: list = field(default_factory=list)
+    library_shows: list = field(default_factory=list)
+    library_synced_at: str = None
+
+    # Last TMDB text search (Library tab's request hub) — a plain list
+    # of {"tmdb_id", "tvdb_id", "title", "year", "rating", "in_library"}
+    # dicts (see core/library.mark_in_library). Adding a result is only
+    # ever allowed for an id present in this list, same "only act on
+    # what was just listed" rule as everything else destructive/
+    # write-y in yArr.
+    last_search_query: str = None
+    last_search_media_type: str = None      # "movie" | "tv"
+    last_search_results: list = field(default_factory=list)
+    last_search_at: str = None
+
 
 def _film_to_dict(film):
     return asdict(film)
@@ -208,6 +228,13 @@ def load(path: str) -> YarrState:
         duplicate_deletable_bytes=raw.get("duplicate_deletable_bytes"),
         junk_entries=list(raw.get("junk_entries", [])),
         junk_scan_at=raw.get("junk_scan_at"),
+        library_movies=list(raw.get("library_movies", [])),
+        library_shows=list(raw.get("library_shows", [])),
+        library_synced_at=raw.get("library_synced_at"),
+        last_search_query=raw.get("last_search_query"),
+        last_search_media_type=raw.get("last_search_media_type"),
+        last_search_results=list(raw.get("last_search_results", [])),
+        last_search_at=raw.get("last_search_at"),
     )
 
 
@@ -237,6 +264,13 @@ def save(state: YarrState, path: str) -> None:
         "duplicate_deletable_bytes": state.duplicate_deletable_bytes,
         "junk_entries": state.junk_entries,
         "junk_scan_at": state.junk_scan_at,
+        "library_movies": state.library_movies,
+        "library_shows": state.library_shows,
+        "library_synced_at": state.library_synced_at,
+        "last_search_query": state.last_search_query,
+        "last_search_media_type": state.last_search_media_type,
+        "last_search_results": state.last_search_results,
+        "last_search_at": state.last_search_at,
     }
     try:
         with open(path, "w") as f:

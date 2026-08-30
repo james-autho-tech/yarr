@@ -124,6 +124,17 @@ def build_status():
         "junk_bytes": attrs.get("junk_bytes", 0),
         "junk_scan_at": attrs.get("junk_scan_at"),
 
+        "library_movies": attrs.get("library_movies", []),
+        "library_movie_count": attrs.get("library_movie_count", 0),
+        "library_shows": attrs.get("library_shows", []),
+        "library_show_count": attrs.get("library_show_count", 0),
+        "library_synced_at": attrs.get("library_synced_at"),
+        "last_search_query": attrs.get("last_search_query"),
+        "last_search_media_type": attrs.get("last_search_media_type"),
+        "last_search_results": attrs.get("last_search_results", []),
+        "last_search_at": attrs.get("last_search_at"),
+        "allow_library_delete": attrs.get("allow_library_delete", False),
+
         "log": attrs.get("log", []),
     }
 
@@ -186,6 +197,18 @@ button{background:var(--accent);color:var(--accent-ink);border:none;border-radiu
 button:hover{filter:brightness(1.1)}
 button.ghost{background:transparent;color:var(--ink);border:2px solid var(--ink)}
 button.ghost:hover{background:var(--ink);color:var(--bg)}
+
+input.text-input{background:var(--panel);color:var(--ink);border:2px solid var(--edge);
+      border-radius:6px;padding:11px 14px;font-size:14px;font-family:var(--sans);
+      min-width:220px}
+input.text-input:focus{outline:none;border-color:var(--accent)}
+.search-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
+.pill-toggle{display:flex;border:2px solid var(--edge);border-radius:6px;overflow:hidden}
+.pill-toggle button{background:transparent;color:var(--sub);border:none;border-radius:0;
+      padding:11px 16px}
+.pill-toggle button.active{background:var(--accent);color:var(--accent-ink)}
+.badge{font-size:11px;padding:3px 10px;border-radius:4px;font-weight:800;letter-spacing:.02em;
+      text-transform:uppercase;background:var(--ok);color:#06210e}
 
 table{width:100%;border-collapse:collapse;font-size:14px}
 table.list td, table.list th{padding:10px 6px;text-align:left;border-bottom:1px solid var(--edge)}
@@ -263,6 +286,7 @@ button.small-delete:disabled:hover{color:var(--faint);border-color:var(--edge)}
 <nav class="tabs">
   <button class="tab-btn" data-tab="movies" onclick="selectTab('movies')">Movies</button>
   <button class="tab-btn" data-tab="tv" id="nav-tv" style="display:none" onclick="selectTab('tv')">TV</button>
+  <button class="tab-btn" data-tab="library" onclick="selectTab('library')">Library</button>
   <button class="tab-btn" data-tab="sabnzbd" id="nav-sabnzbd" style="display:none" onclick="selectTab('sabnzbd')">SABnzbd</button>
   <button class="tab-btn" data-tab="dupes" id="nav-dupes" style="display:none" onclick="selectTab('dupes')">Cleanup</button>
   <button class="tab-btn" data-tab="log" onclick="selectTab('log')">Log</button>
@@ -271,6 +295,41 @@ button.small-delete:disabled:hover{color:var(--faint);border-color:var(--edge)}
   <div id="banner"></div>
   <section id="movies-section" class="tab-page" data-tab="movies"></section>
   <section id="tv-section" class="tab-page" data-tab="tv"></section>
+  <section id="library-section" class="tab-page" data-tab="library">
+    <div class="section-head"><span class="section-title">Search &amp; Request</span></div>
+    <div class="search-row">
+      <div class="pill-toggle" id="search-type-toggle" style="display:none">
+        <button id="search-type-movie" class="active" onclick="setSearchMediaType('movie')">Movie</button>
+        <button id="search-type-tv" onclick="setSearchMediaType('tv')">TV</button>
+      </div>
+      <input class="text-input" id="library-search-input" type="text"
+             placeholder="Search for a movie or show..."
+             onkeydown="if(event.key==='Enter'){event.preventDefault();runSearch(document.getElementById('library-search-btn'));}">
+      <button id="library-search-btn" onclick="runSearch(this)">Search</button>
+    </div>
+    <div id="search-meta" class="mode-line" style="margin-bottom:12px"></div>
+    <div id="search-results-container"></div>
+
+    <div class="section-head" style="margin-top:30px"><span class="section-title">Your Library</span>
+      <span class="section-note" id="library-synced-note"></span></div>
+    <div class="stat-row" id="library-stats"></div>
+    <div id="library-delete-note"></div>
+    <div class="search-row" style="margin-top:14px">
+      <button onclick="runAction(this,'api/refresh-library')">Refresh Library</button>
+      <input class="text-input" id="library-filter-input" type="text"
+             placeholder="Filter your library..." oninput="onLibraryFilterInput()">
+    </div>
+    <div class="section-note" style="margin-bottom:6px">Movies</div>
+    <table class="list" style="margin-bottom:20px"><thead><tr><th>Title</th><th>Year</th><th>Size</th><th></th></tr></thead>
+      <tbody id="library-movies-body"></tbody>
+    </table>
+    <div id="library-shows-block" style="display:none">
+      <div class="section-note" style="margin-bottom:6px">Shows</div>
+      <table class="list"><thead><tr><th>Title</th><th>Year</th><th>Size</th><th></th></tr></thead>
+        <tbody id="library-shows-body"></tbody>
+      </table>
+    </div>
+  </section>
   <section id="sabnzbd-section" class="tab-page" data-tab="sabnzbd"></section>
   <section id="dupes-section" class="tab-page" data-tab="dupes"></section>
   <section id="log-section" class="tab-page" data-tab="log"></section>
@@ -280,6 +339,11 @@ button.small-delete:disabled:hover{color:var(--faint);border-color:var(--edge)}
 let currentTab = 'movies';
 try { currentTab = localStorage.getItem('yarr_tab') || 'movies'; } catch (e) {}
 let lastJunkEntries = [];
+let lastSearchResults = [];
+let lastLibraryMovies = [];
+let lastLibraryShows = [];
+let searchMediaType = 'movie';
+let allowLibraryDelete = false;
 
 function selectTab(tab) {
   currentTab = tab;
@@ -397,6 +461,70 @@ function proposalCard(pending, acceptFn, denyFn) {
   </div>`;
 }
 
+function searchResultRow(r, i) {
+  return `<tr><td class="title-cell">${esc(r.title)}</td><td class="year">${r.year||'—'}</td><td class="year">${(r.rating||0).toFixed(1)}</td>
+    <td>${r.in_library ? '<span class="badge">In library</span>' : `<button onclick="addSearchResult(${i}, this)">Add</button>`}</td></tr>`;
+}
+function libraryMovieRow(m, i) {
+  return `<tr><td class="title-cell">${esc(m.title)}</td><td class="year">${m.year||'—'}</td><td class="year">${fmtBytes(m.size||0)}</td>
+    <td><button class="small-delete" onclick="deleteLibraryMovie(${i}, this)" ${allowLibraryDelete?'':'disabled'}>Delete</button></td></tr>`;
+}
+function libraryShowRow(s, i) {
+  return `<tr><td class="title-cell">${esc(s.title)}</td><td class="year">${s.year||'—'}</td><td class="year">${fmtBytes(s.size||0)}</td>
+    <td><button class="small-delete" onclick="deleteLibraryShow(${i}, this)" ${allowLibraryDelete?'':'disabled'}>Delete</button></td></tr>`;
+}
+function setSearchMediaType(t) {
+  searchMediaType = t;
+  document.getElementById('search-type-movie').classList.toggle('active', t === 'movie');
+  document.getElementById('search-type-tv').classList.toggle('active', t === 'tv');
+}
+async function runSearch(btn) {
+  const input = document.getElementById('library-search-input');
+  const q = input ? input.value.trim() : '';
+  if (!q) return;
+  await runAction(btn, 'api/search-media', {query: q, media_type: searchMediaType});
+}
+function addSearchResult(i, btn) {
+  const r = lastSearchResults[i];
+  if (!r || r.in_library) return;
+  const msg = `Add "${r.title}"${r.year ? ' ('+r.year+')' : ''} to your library?`;
+  if (searchMediaType === 'tv') {
+    runAction(btn, 'api/request-add-show', {tvdb_id: r.tvdb_id}, {confirmMsg: msg});
+  } else {
+    runAction(btn, 'api/request-add-movie', {tmdb_id: r.tmdb_id}, {confirmMsg: msg});
+  }
+}
+function deleteLibraryMovie(i, btn) {
+  const m = lastLibraryMovies[i];
+  if (!m || !allowLibraryDelete) return;
+  const msg = `Permanently delete "${m.title}"${m.year ? ' ('+m.year+')' : ''} and its files? `
+    + 'This is a real library item, not something yArr added — this cannot be undone.';
+  runAction(btn, 'api/library-delete-movie', {id: m.id}, {confirmMsg: msg});
+}
+function deleteLibraryShow(i, btn) {
+  const s = lastLibraryShows[i];
+  if (!s || !allowLibraryDelete) return;
+  const msg = `Permanently delete "${s.title}"${s.year ? ' ('+s.year+')' : ''} and its files? `
+    + 'This is a real library item, not something yArr added — this cannot be undone.';
+  runAction(btn, 'api/library-delete-show', {id: s.id}, {confirmMsg: msg});
+}
+function onLibraryFilterInput() {
+  const input = document.getElementById('library-filter-input');
+  const q = (input ? input.value : '').toLowerCase();
+  const moviesBody = document.getElementById('library-movies-body');
+  if (moviesBody) {
+    const rows = lastLibraryMovies.map((item, i) => ({item, i})).filter(({item}) => item.title.toLowerCase().includes(q));
+    moviesBody.innerHTML = rows.length ? rows.map(({item, i}) => libraryMovieRow(item, i)).join('')
+      : `<tr><td class="empty-row" colspan="4">${lastLibraryMovies.length ? 'No matches.' : 'No movies found — press Refresh Library.'}</td></tr>`;
+  }
+  const showsBody = document.getElementById('library-shows-body');
+  if (showsBody) {
+    const rows = lastLibraryShows.map((item, i) => ({item, i})).filter(({item}) => item.title.toLowerCase().includes(q));
+    showsBody.innerHTML = rows.length ? rows.map(({item, i}) => libraryShowRow(item, i)).join('')
+      : `<tr><td class="empty-row" colspan="4">${lastLibraryShows.length ? 'No matches.' : 'No shows found — press Refresh Library.'}</td></tr>`;
+  }
+}
+
 async function refresh() {
   const d = await (await fetch('api/status')).json();
 
@@ -466,6 +594,37 @@ async function refresh() {
       ${surpriseTable(d.surprise_shows, 'deleteTvSurprise')}
     `;
   }
+
+  // Library tab — only the data sub-containers get their innerHTML
+  // replaced here, never the search/filter <input> elements
+  // themselves (those live in the static shell HTML above), so typing
+  // into either box survives the 5s poll cycle instead of getting
+  // wiped out from under the user mid-keystroke.
+  lastSearchResults = d.last_search_results || [];
+  lastLibraryMovies = d.library_movies || [];
+  lastLibraryShows = d.library_shows || [];
+  allowLibraryDelete = !!d.allow_library_delete;
+
+  document.getElementById('search-type-toggle').style.display = d.tv_enabled ? '' : 'none';
+  document.getElementById('search-meta').textContent = d.last_search_query
+    ? `Last searched ${d.last_search_media_type||'movie'}: "${d.last_search_query}" (${lastSearchResults.length} result(s))`
+    : '';
+  document.getElementById('search-results-container').innerHTML = lastSearchResults.length
+    ? `<table class="list" style="margin-bottom:30px"><thead><tr><th>Title</th><th>Year</th><th>Rating</th><th></th></tr></thead><tbody>
+        ${lastSearchResults.map((r,i) => searchResultRow(r,i)).join('')}
+      </tbody></table>`
+    : '<div class="empty-row" style="margin-bottom:30px">No search results yet — type something above and press Search.</div>';
+
+  document.getElementById('library-synced-note').textContent =
+    'synced ' + (d.library_synced_at ? fmtDate(d.library_synced_at) : 'never');
+  document.getElementById('library-stats').innerHTML = `
+    <div class="stat"><div class="lbl">Movies</div><div class="val">${d.library_movie_count||0}</div></div>
+    ${d.tv_enabled ? `<div class="stat"><div class="lbl">Shows</div><div class="val">${d.library_show_count||0}</div></div>` : ''}
+  `;
+  document.getElementById('library-delete-note').innerHTML = allowLibraryDelete ? '' :
+    '<div class="mode-line">Deleting from your library is off by default — set <code>allow_library_delete: true</code> in apps.yaml to enable the Delete buttons below. This removes real files, not something yArr added itself.</div>';
+  document.getElementById('library-shows-block').style.display = d.tv_enabled ? '' : 'none';
+  onLibraryFilterInput();
 
   document.getElementById('nav-sabnzbd').style.display = d.sabnzbd_enabled ? '' : 'none';
   if (!d.sabnzbd_enabled && currentTab === 'sabnzbd') currentTab = 'movies';
@@ -627,6 +786,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")
             elif path.endswith("/api/bulk-delete-junk"):
                 ha_fire_event("yarr_bulk_delete_junk")
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/search-media"):
+                body = self._read_json_body()
+                ha_fire_event("yarr_search_media",
+                              {"query": body.get("query", ""), "media_type": body.get("media_type", "movie")})
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/request-add-movie"):
+                tmdb_id = self._read_json_body().get("tmdb_id")
+                ha_fire_event("yarr_request_add_movie", {"tmdb_id": tmdb_id})
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/request-add-show"):
+                tvdb_id = self._read_json_body().get("tvdb_id")
+                ha_fire_event("yarr_request_add_show", {"tvdb_id": tvdb_id})
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/refresh-library"):
+                ha_fire_event("yarr_refresh_library")
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/library-delete-movie"):
+                movie_id = self._read_json_body().get("id")
+                ha_fire_event("yarr_library_delete_movie", {"id": movie_id})
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/library-delete-show"):
+                series_id = self._read_json_body().get("id")
+                ha_fire_event("yarr_library_delete_show", {"id": series_id})
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")

@@ -1,5 +1,5 @@
 name: yArr
-version: "0.13.1"
+version: "0.14.0"
 slug: yarr
 description: Automated movie/TV discovery, surprise rotation and library trimming across TMDB/Radarr/Sonarr/Jellyfin, with optional SABnzbd monitoring and NAS duplicate-media scanning (bundled AppDaemon)
 url: https://github.com/james-autho-tech/yarr

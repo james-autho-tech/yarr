@@ -13,6 +13,7 @@ from core import webhook as core_webhook
 from core import taste as core_taste
 from core import dupes as core_dupes
 from core import junk as core_junk
+from core import library as core_library
 
 from clients.tmdb import TMDBClient, TMDBError
 from clients.radarr import RadarrClient, RadarrError
@@ -83,6 +84,20 @@ class Yarr(hass.Hass):
             self.listen_event(self.on_bulk_delete_junk_pressed, "yarr_bulk_delete_junk")
         self.listen_event(self.on_jellyfin_webhook, "yarr_jellyfin_webhook")
 
+        # Library tab: full-library browse/manage + request hub —
+        # always registered (not gated on an opt-in feature toggle like
+        # media_scan_enabled/sabnzbd_enabled above), since browsing and
+        # searching are core functionality once shipped. Only
+        # library-delete itself is gated (on cfg.allow_library_delete,
+        # checked inside the handler, not here — see its docstring).
+        self.listen_event(self.on_search_media, "yarr_search_media")
+        self.listen_event(self.on_request_add_movie, "yarr_request_add_movie")
+        self.listen_event(self.on_refresh_library_pressed, "yarr_refresh_library")
+        self.listen_event(self.on_library_delete_movie, "yarr_library_delete_movie")
+        if self.cfg.tv_enabled:
+            self.listen_event(self.on_request_add_show, "yarr_request_add_show")
+            self.listen_event(self.on_library_delete_show, "yarr_library_delete_show")
+
         self.run_every(self.tick_discovery, "now", self.cfg.discovery_interval_hours * 3600)
         self.run_every(self.tick_surprise_check, "now", 3600)
         if self.cfg.tv_enabled:
@@ -94,6 +109,7 @@ class Yarr(hass.Hass):
             self.run_every(self.tick_sabnzbd_status, "now", 60)
         if self.cfg.media_scan_enabled:
             self.run_every(self.tick_scan_duplicates, "now", self.cfg.media_scan_interval_hours * 3600)
+        self.run_every(self.tick_refresh_library, "now", self.cfg.library_refresh_interval_hours * 3600)
         self.run_every(self.publish_status, "now", 60)
 
         self._log_event(f"yArr v{VERSION} started"
@@ -1215,6 +1231,223 @@ class Yarr(hass.Hass):
         self.publish_status({})
 
     # ------------------------------------------------------------------
+    # LIBRARY: full-library browse/manage + search-and-request hub
+    # ------------------------------------------------------------------
+
+    def tick_refresh_library(self, kwargs):
+        """Cheap compared to the NAS duplicate/junk scan — just a
+        Radarr/Sonarr GET each, no filesystem walk — so this runs far
+        more often (library_refresh_interval_hours, default 1h)."""
+        if self.missing_secrets:
+            return
+        try:
+            self.state_data.library_movies = self.radarr.get_library_movies()
+            if self.cfg.tv_enabled:
+                self.state_data.library_shows = self.sonarr.get_library_series()
+        except (RadarrError, SonarrError) as exc:
+            self._log_event(f"Library refresh failed: {exc}", level="error")
+            return
+        self.state_data.library_synced_at = datetime.now(timezone.utc).isoformat()
+        self._save_state()
+
+    def on_refresh_library_pressed(self, event_name, data, kwargs):
+        self.tick_refresh_library({})
+        self.publish_status({})
+
+    def on_search_media(self, event_name, data, kwargs):
+        """query/media_type come straight from the event payload — the
+        one place in this feature trusting the raw payload is fine,
+        since this only drives a read-only TMDB search, never a write.
+        Cross-checks results against the current library so the web UI
+        can show "already have it" instead of offering to re-add."""
+        if self.missing_secrets:
+            return
+        query = (data or {}).get("query", "").strip()
+        if not query:
+            return
+        media_type = "tv" if (data or {}).get("media_type") == "tv" and self.cfg.tv_enabled else "movie"
+        try:
+            if media_type == "tv":
+                results = self.tmdb.search_tv(query)
+                library_ids = self.sonarr.get_library_tvdb_ids()
+                key = "tvdb_id"
+            else:
+                results = self.tmdb.search_movies(query)
+                library_ids = self.radarr.get_library_tmdb_ids()
+                key = "tmdb_id"
+        except (TMDBError, RadarrError, SonarrError) as exc:
+            self._log_event(f"Search failed: {exc}", level="error")
+            self.publish_status({})
+            return
+
+        rows = core_library.mark_in_library(results, library_ids, key=key)
+        self.state_data.last_search_query = query
+        self.state_data.last_search_media_type = media_type
+        self.state_data.last_search_results = rows
+        self.state_data.last_search_at = datetime.now(timezone.utc).isoformat()
+        self._log_event(f"Searched {media_type} for {query!r} — {len(rows)} result(s).")
+        self.publish_status({})
+
+    def on_request_add_movie(self, event_name, data, kwargs):
+        """Adds a specific search result to Radarr — only ever acts on
+        a tmdb_id present in the last search's results (never trusts
+        the raw event payload alone for a write, same rule as
+        on_delete_duplicate_file), and reuses the exact same add path
+        as genre auto-add/surprise-add: same root folder, same quality
+        profile, same Radarr client call."""
+        tmdb_id = (data or {}).get("tmdb_id")
+        if tmdb_id is None:
+            return
+        row = next((r for r in self.state_data.last_search_results if r.get("tmdb_id") == tmdb_id), None)
+        if row is None or self.state_data.last_search_media_type != "movie":
+            self._log_event(f"Refused to add tmdb_id {tmdb_id!r} — not part of the last search.",
+                             level="error")
+            self.publish_status({})
+            return
+        if row["in_library"]:
+            self.publish_status({})
+            return
+
+        radarr_movie_id = None
+        if not self.cfg.dry_run:
+            try:
+                qp_id = self.radarr.resolve_quality_profile_id(self.cfg.radarr_quality_profile_name)
+                candidate = core_discovery.Candidate(
+                    tmdb_id=row["tmdb_id"], imdb_id=None, title=row["title"],
+                    year=row["year"], genres=[], rating=row.get("rating", 0.0))
+                radarr_movie_id = self.radarr.add_movie(
+                    candidate, root_folder=self.cfg.radarr_root_folder, quality_profile_id=qp_id,
+                    minimum_availability=self.cfg.radarr_minimum_availability)
+            except RadarrError as exc:
+                self._log_event(f"Could not add requested {row['title']!r}: {exc}", level="error")
+                self.publish_status({})
+                return
+
+        self._log_event(f"Requested and added {row['title']!r} ({row['year']}).")
+        self.state_data = core_state.record_suggestion(self.state_data, core_state.SuggestedFilm(
+            tmdb_id=row["tmdb_id"], title=row["title"], year=row["year"], source="requested",
+            decision="added", suggested_at=datetime.now(timezone.utc).isoformat(),
+            radarr_movie_id=radarr_movie_id))
+        # Mark it in_library in the still-displayed search results too,
+        # so the Add button doesn't stay clickable for what was just added.
+        self.state_data.last_search_results = [
+            {**r, "in_library": True} if r.get("tmdb_id") == tmdb_id else r
+            for r in self.state_data.last_search_results]
+        self._save_state()
+        self.publish_status({})
+
+    def on_request_add_show(self, event_name, data, kwargs):
+        tvdb_id = (data or {}).get("tvdb_id")
+        if tvdb_id is None or not self.cfg.tv_enabled:
+            return
+        row = next((r for r in self.state_data.last_search_results if r.get("tvdb_id") == tvdb_id), None)
+        if row is None or self.state_data.last_search_media_type != "tv":
+            self._log_event(f"Refused to add tvdb_id {tvdb_id!r} — not part of the last search.",
+                             level="error")
+            self.publish_status({})
+            return
+        if row["in_library"]:
+            self.publish_status({})
+            return
+
+        sonarr_series_id = None
+        if not self.cfg.dry_run:
+            try:
+                qp_id = self.sonarr.resolve_quality_profile_id(self.cfg.sonarr_quality_profile_name)
+                candidate = core_discovery.TVCandidate(
+                    tmdb_id=row["tmdb_id"], tvdb_id=row["tvdb_id"], imdb_id=None,
+                    title=row["title"], year=row["year"], genres=[], rating=row.get("rating", 0.0))
+                sonarr_series_id = self.sonarr.add_series(
+                    candidate, root_folder=self.cfg.sonarr_root_folder, quality_profile_id=qp_id,
+                    language_profile_id=self.cfg.sonarr_language_profile_id)
+            except SonarrError as exc:
+                self._log_event(f"Could not add requested show {row['title']!r}: {exc}", level="error")
+                self.publish_status({})
+                return
+
+        self._log_event(f"Requested and added show {row['title']!r} ({row['year']}).")
+        self.state_data = core_state.record_suggestion_show(
+            self.state_data, core_state.SuggestedShow(
+                tvdb_id=row["tvdb_id"], tmdb_id=row["tmdb_id"], title=row["title"], year=row["year"],
+                source="requested", decision="added", suggested_at=datetime.now(timezone.utc).isoformat(),
+                sonarr_series_id=sonarr_series_id))
+        self.state_data.last_search_results = [
+            {**r, "in_library": True} if r.get("tvdb_id") == tvdb_id else r
+            for r in self.state_data.last_search_results]
+        self._save_state()
+        self.publish_status({})
+
+    def on_library_delete_movie(self, event_name, data, kwargs):
+        """The highest-blast-radius delete in yArr: unlike every other
+        delete here, this can remove a movie you've had for years and
+        never touched by yArr at all — so it's gated behind an
+        explicit, separate apps.yaml opt-in on top of the web UI's own
+        confirm dialog. Deliberately never touches state_data.surprises
+        /suggested even if the deleted movie happens to also be
+        tracked there — tick_reconcile_surprises already notices
+        anything that vanishes from Radarr and untracks it on its own,
+        with its own log line, so there's no need to duplicate that
+        here and risk two code paths racing on the same state key."""
+        if not self.cfg.allow_library_delete:
+            self._log_event("Library delete refused — allow_library_delete is not enabled in apps.yaml.",
+                             level="error")
+            self.publish_status({})
+            return
+        movie_id = (data or {}).get("id")
+        item = next((m for m in self.state_data.library_movies if m["id"] == movie_id), None)
+        if item is None:
+            self._log_event(f"Refused to delete library movie id {movie_id!r} — not part of the "
+                             "last library listing.", level="error")
+            self.publish_status({})
+            return
+        if self.cfg.dry_run:
+            self._log_event(f"[dry_run] Would permanently delete {item['title']!r} from the library.")
+            self.publish_status({})
+            return
+        try:
+            self.radarr.delete_movie(item["id"])
+        except RadarrError as exc:
+            self._log_event(f"Could not delete {item['title']!r} from Radarr: {exc}", level="error")
+            self.publish_status({})
+            return
+        self._log_event(f"Library delete: permanently removed {item['title']!r} ({item['year']}) "
+                         "— requested from the Library tab.")
+        self.state_data.library_movies = [m for m in self.state_data.library_movies if m["id"] != movie_id]
+        self._save_state()
+        self.publish_status({})
+
+    def on_library_delete_show(self, event_name, data, kwargs):
+        if not self.cfg.tv_enabled:
+            return
+        if not self.cfg.allow_library_delete:
+            self._log_event("Library delete refused — allow_library_delete is not enabled in apps.yaml.",
+                             level="error")
+            self.publish_status({})
+            return
+        series_id = (data or {}).get("id")
+        item = next((s for s in self.state_data.library_shows if s["id"] == series_id), None)
+        if item is None:
+            self._log_event(f"Refused to delete library show id {series_id!r} — not part of the "
+                             "last library listing.", level="error")
+            self.publish_status({})
+            return
+        if self.cfg.dry_run:
+            self._log_event(f"[dry_run] Would permanently delete {item['title']!r} from the library.")
+            self.publish_status({})
+            return
+        try:
+            self.sonarr.delete_series(item["id"])
+        except SonarrError as exc:
+            self._log_event(f"Could not delete {item['title']!r} from Sonarr: {exc}", level="error")
+            self.publish_status({})
+            return
+        self._log_event(f"Library delete: permanently removed {item['title']!r} ({item['year']}) "
+                         "— requested from the Library tab.")
+        self.state_data.library_shows = [s for s in self.state_data.library_shows if s["id"] != series_id]
+        self._save_state()
+        self.publish_status({})
+
+    # ------------------------------------------------------------------
     # SABNZBD MONITORING (read-only)
     # ------------------------------------------------------------------
 
@@ -1286,6 +1519,20 @@ class Yarr(hass.Hass):
             "surprise_requires_approval": self.cfg.surprise_requires_approval,
             "pending_surprise": self._pending_row(self.state_data.pending_surprise),
             "log": list(reversed(self.state_data.event_log[-30:])),
+            # Library tab — always published (not gated on an opt-in
+            # feature flag like the sections below), since browsing and
+            # searching are core functionality once shipped. Capped
+            # generously (not the [:50] used for duplicate/junk lists,
+            # which would be useless for a real library) as a hard
+            # ceiling against unbounded HA attribute payload size.
+            "library_movies": self.state_data.library_movies[:2000],
+            "library_movie_count": len(self.state_data.library_movies),
+            "library_synced_at": self.state_data.library_synced_at,
+            "last_search_query": self.state_data.last_search_query,
+            "last_search_media_type": self.state_data.last_search_media_type,
+            "last_search_results": self.state_data.last_search_results,
+            "last_search_at": self.state_data.last_search_at,
+            "allow_library_delete": self.cfg.allow_library_delete,
         }
         if self.cfg.tv_enabled:
             attrs.update({
@@ -1297,6 +1544,8 @@ class Yarr(hass.Hass):
                 "recent_suggested_shows": self._recent_suggested(self.state_data.suggested_shows),
                 "surprise_shows": self._surprise_rows(self.state_data.surprises_shows, id_field="tvdb_id"),
                 "pending_tv_surprise": self._pending_row(self.state_data.pending_tv_surprise),
+                "library_shows": self.state_data.library_shows[:2000],
+                "library_show_count": len(self.state_data.library_shows),
             })
         if self.cfg.media_scan_enabled:
             attrs.update({

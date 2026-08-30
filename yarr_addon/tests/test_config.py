@@ -38,6 +38,17 @@ def test_media_scan_disabled_by_default():
     assert cfg.junk_min_age_hours == 1.0
 
 
+def test_library_delete_disabled_by_default():
+    cfg = build_config({}, {})
+    assert cfg.allow_library_delete is False
+    assert cfg.library_refresh_interval_hours == 1.0
+
+
+def test_allow_library_delete_parsed():
+    cfg = build_config({"allow_library_delete": True}, {})
+    assert cfg.allow_library_delete is True
+
+
 def test_junk_min_age_hours_parsed():
     cfg = build_config({"junk_min_age_hours": 3}, {})
     assert cfg.junk_min_age_hours == 3.0
