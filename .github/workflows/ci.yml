@@ -95,3 +95,29 @@ jobs:
         # browser would catch. This loads the page with fixture data
         # and clicks every button, asserting nothing throws.
         run: python3 -m pytest yarr_addon/tests/test_webui_smoke.py -v
+
+  docker-build:
+    name: Build the add-on's Docker image (amd64)
+    runs-on: ubuntu-latest
+    # Nothing else in this workflow ever actually builds the image —
+    # pytest/esprima/Playwright all exercise the Python/JS source
+    # directly, and the addon-linter only validates config.yaml's
+    # schema. A broken Dockerfile (a bad COPY path, chmod on a file
+    # that no longer exists, a pip install failure) would only ever
+    # surface when a real user tries to install or update the add-on —
+    # which fails much harder than any bug fixed so far: the add-on
+    # can't run at all. This builds it for real on every push.
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract the amd64 base image from build.yaml
+        id: base
+        run: |
+          pip install pyyaml
+          IMAGE=$(python3 -c "import yaml; d = yaml.safe_load(open('yarr_addon/build.yaml')); print(d['build_from']['amd64'])")
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+      - name: Build image
+        run: |
+          docker build \
+            --build-arg BUILD_FROM=${{ steps.base.outputs.image }} \
+            -t yarr-addon-ci-build \
+            ./yarr_addon
