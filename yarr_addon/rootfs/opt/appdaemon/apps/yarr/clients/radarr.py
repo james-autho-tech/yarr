@@ -81,3 +81,17 @@ class RadarrClient:
         own delete flow) so Radarr notices the file is gone right away
         instead of waiting for its own periodic disk scan."""
         self._request("POST", "/command", {"name": "RefreshMovie"})
+
+    def find_movie_id_by_file_path(self, path: str):
+        """Looks up which movie owns a given file path — used to
+        rename the surviving copy after a duplicate delete, since
+        Radarr's RenameMovie command needs a movieId, not a path."""
+        _, movies = self._request("GET", "/movie")
+        for m in movies or []:
+            movie_file = m.get("movieFile")
+            if movie_file and movie_file.get("path") == path:
+                return m["id"]
+        return None
+
+    def rename_movie_files(self, movie_id: int) -> None:
+        self._request("POST", "/command", {"name": "RenameMovie", "movieIds": [movie_id]})

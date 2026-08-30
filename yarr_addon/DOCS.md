@@ -198,10 +198,21 @@ that would otherwise produce noisy false-feeling matches.
 confirm prompt) removes exactly that file off the NAS mount — yArr
 only ever acts on a path that was actually part of the last scan's
 results, never an arbitrary path, so it can't be tricked into deleting
-something it hasn't itself just reported. After a successful delete,
-yArr tells Radarr and (if enabled) Sonarr to rescan their libraries, so
-neither one's database goes stale after a delete that bypassed their
-own delete flow entirely.
+something it hasn't itself just reported. After a successful delete:
+
+- Any now-empty parent folder left behind gets removed too, walking
+  upward until it hits a folder with content or one of your configured
+  `media_scan_paths` roots — it never deletes the root itself, and
+  never walks outside it.
+- yArr tells Radarr and (if enabled) Sonarr to rescan their libraries,
+  so neither one's database goes stale after a delete that bypassed
+  their own delete flow entirely.
+- The surviving copy (whichever duplicate wasn't deleted) gets a
+  Radarr `RenameMovie` / Sonarr `RenameSeries` command fired for it, in
+  case it doesn't match your configured naming format — it's arbitrary
+  which of the duplicates Radarr/Sonarr originally considered "the"
+  file. Best-effort: a failure here is logged but never undoes the
+  delete itself.
 
 ## Troubleshooting
 

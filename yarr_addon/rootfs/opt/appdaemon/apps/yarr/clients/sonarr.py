@@ -89,3 +89,18 @@ class SonarrClient:
         own delete flow) so Sonarr notices the file is gone right away
         instead of waiting for its own periodic disk scan."""
         self._request("POST", "/command", {"name": "RefreshSeries"})
+
+    def find_series_id_by_file_path(self, path: str):
+        """Looks up which series owns a given episode file path — used
+        to rename the surviving copy after a duplicate delete, since
+        Sonarr's RenameSeries command needs a seriesId, not a path.
+        Episode files are their own resource in Sonarr (unlike Radarr,
+        where movieFile is embedded on the movie itself)."""
+        _, files = self._request("GET", "/episodefile")
+        for f in files or []:
+            if f.get("path") == path:
+                return f.get("seriesId")
+        return None
+
+    def rename_series_files(self, series_id: int) -> None:
+        self._request("POST", "/command", {"name": "RenameSeries", "seriesIds": [series_id]})

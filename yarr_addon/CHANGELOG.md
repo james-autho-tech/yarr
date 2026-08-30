@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.1
+
+- Deleting a duplicate file now also: removes any now-empty parent
+  folder left behind (stopping at the configured `media_scan_paths`
+  root — never the root itself, never outside it), and fires a Radarr
+  `RenameMovie` / Sonarr `RenameSeries` command for the surviving copy
+  in case it doesn't match your configured naming format (best-effort
+  — a failure here is logged but never undoes the delete).
+
 ## 0.9.0
 
 - The duplicate media scan is no longer report-only: each file in a

@@ -34,8 +34,9 @@ monitoring — bundling its own AppDaemon runtime.
   `/media` share) for files sharing an identical size — a strong,
   cheap signal for duplicate video files — and lists candidate groups
   in the web UI. Deleting is manual and per-file: a Delete button next
-  to each file removes it from disk and triggers a Radarr/Sonarr
-  rescan, but yArr never deletes anything on its own.
+  to each file removes it from disk, cleans up any now-empty folder
+  left behind, renames the surviving copy if needed, and triggers a
+  Radarr/Sonarr rescan — but yArr never deletes anything on its own.
 
 TV/Sonarr, SABnzbd, and the duplicate scan are all entirely opt-in —
 leave their Configuration-tab fields / apps.yaml paths blank to run

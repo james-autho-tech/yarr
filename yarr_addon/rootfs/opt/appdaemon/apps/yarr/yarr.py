@@ -756,13 +756,57 @@ class Yarr(hass.Hass):
         else:
             self._log_event("Media scan: no duplicates found.")
 
+    def _cleanup_empty_dirs(self, deleted_path):
+        """Walks upward from a just-deleted file's directory, removing
+        it and its parents while they're empty — stops the moment a
+        directory still has content, or the moment it reaches one of
+        the configured scan roots (never deletes the root itself, and
+        never walks outside it either, so this can't reach anywhere on
+        the mount yArr wasn't told to manage)."""
+        roots = [os.path.normpath(p) for p in self.cfg.media_scan_paths]
+        directory = os.path.dirname(os.path.normpath(deleted_path))
+        while directory not in roots and any(
+                directory.startswith(root + os.sep) for root in roots):
+            try:
+                if os.listdir(directory):
+                    break
+                os.rmdir(directory)
+            except OSError as exc:
+                self._log_event(f"Could not remove empty folder {directory!r}: {exc}", level="warn")
+                break
+            self._log_event(f"Removed empty folder: {directory!r}.")
+            directory = os.path.dirname(directory)
+
+    def _rename_surviving_copy(self, survivor_path):
+        """Best-effort: after a duplicate is deleted, the copy that's
+        left behind may not match your configured naming format (it's
+        arbitrary which of the duplicates got tagged as "the" file by
+        Radarr/Sonarr originally) — this looks it up and asks
+        Radarr/Sonarr to rename it properly. Failures here are logged
+        but never block the delete itself from having succeeded."""
+        try:
+            movie_id = self.radarr.find_movie_id_by_file_path(survivor_path)
+            if movie_id is not None:
+                self.radarr.rename_movie_files(movie_id)
+        except RadarrError as exc:
+            self._log_event(f"Radarr rename after duplicate delete failed: {exc}", level="warn")
+        if self.cfg.tv_enabled:
+            try:
+                series_id = self.sonarr.find_series_id_by_file_path(survivor_path)
+                if series_id is not None:
+                    self.sonarr.rename_series_files(series_id)
+            except SonarrError as exc:
+                self._log_event(f"Sonarr rename after duplicate delete failed: {exc}", level="warn")
+
     def on_delete_duplicate_file(self, event_name, data, kwargs):
-        """Deletes exactly one file off the NAS mount, then tells
-        Radarr/Sonarr to rescan so their databases don't go stale after
-        a delete that bypassed their own delete flow entirely. Only
-        ever acts on a path that was actually part of the last scan's
-        results — never an arbitrary path from the event payload — since
-        this is the one place yArr writes to the media mount at all."""
+        """Deletes exactly one file off the NAS mount, cleans up any
+        now-empty parent folders, renames the surviving copy to match
+        your naming format, then tells Radarr/Sonarr to rescan so their
+        databases don't go stale after a delete that bypassed their own
+        delete flow entirely. Only ever acts on a path that was
+        actually part of the last scan's results — never an arbitrary
+        path from the event payload — since this is the one place yArr
+        writes to the media mount at all."""
         path = (data or {}).get("path")
         if not path:
             return
@@ -779,9 +823,13 @@ class Yarr(hass.Hass):
         except OSError as exc:
             self._log_event(f"Could not delete {path!r}: {exc}", level="error")
             return
+        self._cleanup_empty_dirs(path)
 
+        survivor_paths = []
         new_groups = []
         for group in self.state_data.duplicate_groups:
+            if any(f["path"] == path for f in group):
+                survivor_paths = [f["path"] for f in group if f["path"] != path]
             remaining = [f for f in group if f["path"] != path]
             if len(remaining) > 1:
                 new_groups.append(remaining)
@@ -797,6 +845,9 @@ class Yarr(hass.Hass):
                 self.sonarr.rescan_library()
             except SonarrError as exc:
                 self._log_event(f"Sonarr rescan after duplicate delete failed: {exc}", level="warn")
+
+        for survivor in survivor_paths:
+            self._rename_surviving_copy(survivor)
 
     # ------------------------------------------------------------------
     # SABNZBD MONITORING (read-only)
