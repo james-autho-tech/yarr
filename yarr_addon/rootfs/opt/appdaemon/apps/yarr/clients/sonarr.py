@@ -82,3 +82,10 @@ class SonarrClient:
 
     def delete_series(self, series_id: int, delete_files: bool = True) -> None:
         self._request("DELETE", f"/series/{series_id}?deleteFiles={'true' if delete_files else 'false'}")
+
+    def rescan_library(self) -> None:
+        """Full-library refresh/rescan (no seriesId) — used after
+        deleting a duplicate file directly off disk (bypassing Sonarr's
+        own delete flow) so Sonarr notices the file is gone right away
+        instead of waiting for its own periodic disk scan."""
+        self._request("POST", "/command", {"name": "RefreshSeries"})

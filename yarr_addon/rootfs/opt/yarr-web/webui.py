@@ -430,11 +430,12 @@ async function refresh() {
         <div class="stat"><div class="lbl">Groups found</div><div class="val">${d.duplicate_group_count||0}</div></div>
         <div class="stat"><div class="lbl">Space wasted</div><div class="val small">${fmtBytes(d.duplicate_wasted_bytes||0)}</div></div>
       </div>
-      <div class="mode-line">Report-only — yArr never deletes any of these for you. Same file size is the signal; review before removing anything yourself.</div>
+      <div class="mode-line">Same file size is the signal — review before deleting. Deleting here removes the file from disk immediately and tells Radarr/Sonarr to rescan.</div>
       <div style="margin:14px 0 18px"><button onclick="scanDuplicatesNow()">Scan Now</button></div>
       ${groups.length ? groups.map(g => `
-        <table class="list" style="margin-bottom:14px"><thead><tr><th>File</th><th>Size</th></tr></thead><tbody>
-          ${g.map(f => `<tr><td class="title-cell" title="${esc(f.path)}">${esc(baseName(f.path))}</td><td class="year">${fmtBytes(f.size)}</td></tr>`).join('')}
+        <table class="list" style="margin-bottom:14px"><thead><tr><th>File</th><th>Size</th><th></th></tr></thead><tbody>
+          ${g.map(f => `<tr><td class="title-cell" title="${esc(f.path)}">${esc(baseName(f.path))}</td><td class="year">${fmtBytes(f.size)}</td>
+            <td><button class="small-delete" onclick="deleteDuplicateFile(${JSON.stringify(f.path)})">Delete</button></td></tr>`).join('')}
         </tbody></table>
       `).join('') : '<div class="empty-row">No duplicate groups found.</div>'}
     `;
@@ -462,6 +463,7 @@ async function denyTvSurprise(){ await post('api/deny-surprise-tv'); refresh(); 
 async function deleteSurprise(id){ if(!confirm('Delete this from Radarr now?')) return; await post('api/delete-surprise', {id}); refresh(); }
 async function deleteTvSurprise(id){ if(!confirm('Delete this from Sonarr now?')) return; await post('api/delete-surprise-tv', {id}); refresh(); }
 async function scanDuplicatesNow(){ await post('api/scan-duplicates-now'); refresh(); }
+async function deleteDuplicateFile(path){ if(!confirm('Delete this file from disk now? This cannot be undone.')) return; await post('api/delete-duplicate-file', {path}); refresh(); }
 refresh();
 setInterval(refresh, 5000);
 </script>
@@ -523,6 +525,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")
             elif path.endswith("/api/scan-duplicates-now"):
                 ha_fire_event("yarr_scan_duplicates_now")
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/delete-duplicate-file"):
+                file_path = self._read_json_body().get("path")
+                ha_fire_event("yarr_delete_duplicate_file", {"path": file_path})
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")

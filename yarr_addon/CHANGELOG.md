@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.0
+
+- The duplicate media scan is no longer report-only: each file in a
+  duplicate group now gets its own **Delete** button in the web UI
+  (with a confirm prompt). yArr only ever deletes a path that was
+  actually part of the last scan's results — never an arbitrary path —
+  and every delete triggers a Radarr and (if enabled) Sonarr library
+  rescan afterward, so their databases notice the file is gone right
+  away instead of drifting out of sync until their own periodic disk
+  scan catches up. Requires the `media` mount to be writable, so
+  `config.yaml`'s map entry switched from read-only to read-write.
+
 ## 0.8.0
 
 - Added an optional **duplicate media scan**: scans NAS paths (via

@@ -74,6 +74,7 @@ class Yarr(hass.Hass):
             self.listen_event(self.on_delete_tv_surprise_now, "yarr_delete_tv_surprise_now")
         if self.cfg.media_scan_enabled:
             self.listen_event(self.on_scan_duplicates_now_pressed, "yarr_scan_duplicates_now")
+            self.listen_event(self.on_delete_duplicate_file, "yarr_delete_duplicate_file")
         self.listen_event(self.on_jellyfin_webhook, "yarr_jellyfin_webhook")
 
         self.run_every(self.tick_discovery, "now", self.cfg.discovery_interval_hours * 3600)
@@ -754,6 +755,48 @@ class Yarr(hass.Hass):
                              f"(~{wasted_gb:.1f} GB) — review in the web UI.")
         else:
             self._log_event("Media scan: no duplicates found.")
+
+    def on_delete_duplicate_file(self, event_name, data, kwargs):
+        """Deletes exactly one file off the NAS mount, then tells
+        Radarr/Sonarr to rescan so their databases don't go stale after
+        a delete that bypassed their own delete flow entirely. Only
+        ever acts on a path that was actually part of the last scan's
+        results — never an arbitrary path from the event payload — since
+        this is the one place yArr writes to the media mount at all."""
+        path = (data or {}).get("path")
+        if not path:
+            return
+        known_paths = {f["path"] for group in self.state_data.duplicate_groups for f in group}
+        if path not in known_paths:
+            self._log_event(f"Refused to delete {path!r} — not part of the last duplicate scan.",
+                             level="error")
+            return
+        if self.cfg.dry_run:
+            self._log_event(f"[dry_run] Would delete duplicate file: {path!r}.")
+            return
+        try:
+            os.remove(path)
+        except OSError as exc:
+            self._log_event(f"Could not delete {path!r}: {exc}", level="error")
+            return
+
+        new_groups = []
+        for group in self.state_data.duplicate_groups:
+            remaining = [f for f in group if f["path"] != path]
+            if len(remaining) > 1:
+                new_groups.append(remaining)
+        self.state_data.duplicate_groups = new_groups
+        self._log_event(f"Deleted duplicate file: {path!r}.")
+
+        try:
+            self.radarr.rescan_library()
+        except RadarrError as exc:
+            self._log_event(f"Radarr rescan after duplicate delete failed: {exc}", level="warn")
+        if self.cfg.tv_enabled:
+            try:
+                self.sonarr.rescan_library()
+            except SonarrError as exc:
+                self._log_event(f"Sonarr rescan after duplicate delete failed: {exc}", level="warn")
 
     # ------------------------------------------------------------------
     # SABNZBD MONITORING (read-only)

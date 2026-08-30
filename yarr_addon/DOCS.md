@@ -167,9 +167,10 @@ reorders anything in the queue.
 Finds candidate duplicate files directly on your NAS by exact file
 size — a strong signal on its own for video files above a size floor
 (default 50MB, well past trailers/samples), and far cheaper than
-hashing whole files across a large library. **Report-only**: yArr
-never deletes, moves, or renames anything it finds here, it just lists
-groups in the web UI's Duplicates tab for you to review yourself.
+hashing whole files across a large library. Deleting is manual and
+per-file: yArr never auto-deletes anything it finds — it lists
+candidate groups in the web UI's Duplicates tab, and each file gets
+its own **Delete** button for you to act on individually.
 
 This needs two things, in order:
 
@@ -179,8 +180,9 @@ This needs two things, in order:
    at, with Usage set to **Media**. Supervisor add-ons (yArr included)
    can only mount HA's own predefined shares, not arbitrary Docker bind
    mounts — this step is what makes that share exist in the first
-   place. yArr's `config.yaml` already declares a read-only `media` map
-   entry; it just has nothing to see until this step is done.
+   place. yArr's `config.yaml` declares a writable `media` map entry
+   (write access is needed for the per-file Delete button); it just has
+   nothing to see until this step is done.
 2. Set `media_scan_paths` in `apps.yaml` to the actual subpaths under
    `/media` your library lives at once that share exists (e.g.
    `/media/movies`, `/media/tv`) — check what's actually there via
@@ -191,6 +193,15 @@ Runs on `media_scan_interval_hours` (default 24h), or trigger one
 immediately with the **Scan Now** button in the web UI's Duplicates
 tab. `media_scan_min_size_mb` (default 50) filters out small files
 that would otherwise produce noisy false-feeling matches.
+
+**Deleting a file**: the web UI's per-file Delete button (with a
+confirm prompt) removes exactly that file off the NAS mount — yArr
+only ever acts on a path that was actually part of the last scan's
+results, never an arbitrary path, so it can't be tricked into deleting
+something it hasn't itself just reported. After a successful delete,
+yArr tells Radarr and (if enabled) Sonarr to rescan their libraries, so
+neither one's database goes stale after a delete that bypassed their
+own delete flow entirely.
 
 ## Troubleshooting
 

@@ -74,3 +74,10 @@ class RadarrClient:
 
     def delete_movie(self, movie_id: int, delete_files: bool = True) -> None:
         self._request("DELETE", f"/movie/{movie_id}?deleteFiles={'true' if delete_files else 'false'}")
+
+    def rescan_library(self) -> None:
+        """Full-library refresh/rescan (no movieId) — used after
+        deleting a duplicate file directly off disk (bypassing Radarr's
+        own delete flow) so Radarr notices the file is gone right away
+        instead of waiting for its own periodic disk scan."""
+        self._request("POST", "/command", {"name": "RefreshMovie"})
