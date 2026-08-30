@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.1
+
+- Fixed a real install error: Sonarr's `/episodefile` endpoint rejects
+  an unscoped GET ("seriesId or episodeFileIds must be provided"),
+  which made the "safe to bulk-delete" count fail on every scan once
+  TV was enabled. Both `get_all_episode_file_paths` (bulk delete) and
+  `find_series_id_by_file_path` (per-file rename) now fetch the series
+  list first and query `/episodefile?seriesId=X` per series instead.
+
 ## 0.10.0
 
 - Added a **Delete All Inferior Duplicates** bulk button to the

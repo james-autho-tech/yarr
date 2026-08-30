@@ -93,20 +93,39 @@ class SonarrClient:
     def get_all_episode_file_paths(self) -> set:
         """Every episode file path Sonarr currently tracks — used to
         tell a duplicate scan's tracked copy apart from a stray
-        leftover (bulk duplicate delete), without a per-file lookup."""
-        _, files = self._request("GET", "/episodefile")
-        return {f["path"] for f in (files or []) if f.get("path")}
+        leftover (bulk duplicate delete). Unlike Radarr's /movie
+        (which embeds each movie's file inline), Sonarr's /episodefile
+        rejects an unscoped GET ("seriesId or episodeFileIds must be
+        provided" — confirmed via a real 400 on a live install), so
+        this fetches the series list first and queries per series."""
+        _, series_list = self._request("GET", "/series")
+        paths = set()
+        for s in series_list or []:
+            series_id = s.get("id")
+            if series_id is None:
+                continue
+            _, files = self._request("GET", f"/episodefile?seriesId={series_id}")
+            paths.update(f["path"] for f in (files or []) if f.get("path"))
+        return paths
 
     def find_series_id_by_file_path(self, path: str):
         """Looks up which series owns a given episode file path — used
         to rename the surviving copy after a duplicate delete, since
         Sonarr's RenameSeries command needs a seriesId, not a path.
         Episode files are their own resource in Sonarr (unlike Radarr,
-        where movieFile is embedded on the movie itself)."""
-        _, files = self._request("GET", "/episodefile")
-        for f in files or []:
-            if f.get("path") == path:
-                return f.get("seriesId")
+        where movieFile is embedded on the movie itself), and
+        /episodefile needs a seriesId to query at all — see
+        get_all_episode_file_paths's docstring — so this checks each
+        series' files in turn and stops at the first path match."""
+        _, series_list = self._request("GET", "/series")
+        for s in series_list or []:
+            series_id = s.get("id")
+            if series_id is None:
+                continue
+            _, files = self._request("GET", f"/episodefile?seriesId={series_id}")
+            for f in files or []:
+                if f.get("path") == path:
+                    return series_id
         return None
 
     def rename_series_files(self, series_id: int) -> None:
