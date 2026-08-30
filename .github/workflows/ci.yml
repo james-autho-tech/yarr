@@ -52,3 +52,22 @@ jobs:
                    yarr_addon/rootfs/opt/appdaemon/apps/yarr/ha_support.yaml; do
             python3 -c "import yaml; yaml.safe_load(open('$f'))" || exit 1
           done
+      - name: Web UI embedded JS syntax (esprima)
+        # webui.py's PAGE is a plain (non-raw) Python string, so a
+        # backslash meant to escape a quote for the BROWSER's JS parser
+        # gets silently consumed by Python's own string literal parsing
+        # first — the classic way this breaks is a nested quote inside
+        # a JS string that looks fine in the source but ships broken,
+        # taking out the entire <script> block with no visible error
+        # (confirmed by a real instance of exactly this in 0.11.0).
+        run: |
+          pip install esprima
+          SUPERVISOR_TOKEN=x python3 -c "
+          import re, esprima
+          import sys
+          sys.path.insert(0, 'yarr_addon/rootfs/opt/yarr-web')
+          import webui
+          js = re.search(r'<script>(.*)</script>', webui.PAGE, re.S).group(1)
+          esprima.parseScript(js)
+          print('Web UI JS syntax OK')
+          "

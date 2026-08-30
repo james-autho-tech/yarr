@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.11.1
+
+- **Fixed a broken web UI**: 0.11.0's "Keep It" button HTML was built
+  as a single-quoted JS string containing a nested single-quoted JS
+  string (from the new `runAction(this,'api/keep-surprise',...)`
+  call). Because `webui.py`'s page template is a plain (non-raw)
+  Python string, the backslash meant to escape that inner quote for
+  the browser got silently consumed by Python's own string parsing
+  first, shipping the page with an unescaped quote that terminated the
+  outer string early — a real JS syntax error that killed the entire
+  `<script>` block, so nothing on the page worked at all (not just
+  that button). Fixed by using a backtick template literal instead of
+  nested single quotes. Added a CI check (esprima-based) that parses
+  the shipped page's embedded JS on every push so this class of bug
+  fails the build instead of shipping silently broken.
+
 ## 0.11.0
 
 - **Every button now gives real feedback.** Root cause of "I pressed

@@ -421,7 +421,7 @@ async function refresh() {
       ${(d.surprises||[]).some(s => s.status === 'deleting_soon') ? (
         d.keep_surprise
           ? '<span class="keep-note">Pending deletion will be kept.</span>'
-          : '<button class="ghost" onclick="runAction(this,\'api/keep-surprise\',{},{watchLog:false})">Keep It</button>'
+          : `<button class="ghost" onclick="runAction(this,'api/keep-surprise',{},{watchLog:false})">Keep It</button>`
       ) : ''}
     </div>
     <div class="section-note" style="margin-bottom:6px">Recently suggested</div>
@@ -452,7 +452,7 @@ async function refresh() {
         ${(d.surprise_shows||[]).some(s => s.status === 'deleting_soon') ? (
           d.keep_surprise_tv
             ? '<span class="keep-note">Pending deletion will be kept.</span>'
-            : '<button class="ghost" onclick="runAction(this,\'api/keep-surprise-tv\',{},{watchLog:false})">Keep It</button>'
+            : `<button class="ghost" onclick="runAction(this,'api/keep-surprise-tv',{},{watchLog:false})">Keep It</button>`
         ) : ''}
       </div>
       <div class="section-note" style="margin-bottom:6px">Recently suggested</div>
