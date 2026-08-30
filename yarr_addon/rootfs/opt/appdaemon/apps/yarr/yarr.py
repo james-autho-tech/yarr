@@ -743,15 +743,21 @@ class Yarr(hass.Hass):
                     files.append(core_dupes.MediaFile(path=full_path, size=size))
         return files
 
-    def _all_tracked_media_paths(self) -> set:
-        """Every file path Radarr (and Sonarr, if enabled) actually
-        track right now — the signal used to tell a duplicate group's
-        real, tracked copy apart from a stray leftover, for both the
-        per-file rename-the-survivor step and the bulk-delete button."""
+    def _all_tracked_media_basenames(self) -> set:
+        """Every tracked file's BASENAME — not full path — that Radarr
+        (and Sonarr, if enabled) currently track. Used by
+        core_dupes.files_to_delete to tell a duplicate group's real,
+        tracked copy apart from a stray leftover. Basename, because
+        Radarr/Sonarr and yArr routinely see the same physical file
+        through different mount prefixes (their own Docker container's
+        mount vs. Home Assistant's /media share) — comparing full paths
+        would never match in that setup, which is the normal case, not
+        an edge case, and previously left every group's bulk-delete
+        count stuck at 0 with no error at all."""
         paths = set(self.radarr.get_all_movie_file_paths())
         if self.cfg.tv_enabled:
             paths |= self.sonarr.get_all_episode_file_paths()
-        return paths
+        return {os.path.basename(p) for p in paths}
 
     def on_scan_duplicates_now_pressed(self, event_name, data, kwargs):
         self.tick_scan_duplicates({})
@@ -773,14 +779,14 @@ class Yarr(hass.Hass):
         self.state_data.duplicate_scan_at = datetime.now(timezone.utc).isoformat()
 
         try:
-            tracked_paths = self._all_tracked_media_paths()
+            tracked_basenames = self._all_tracked_media_basenames()
         except (RadarrError, SonarrError) as exc:
             self._log_event(f"Could not compute bulk-deletable duplicates: {exc}", level="warn")
             self.state_data.duplicate_deletable_count = None
             self.state_data.duplicate_deletable_bytes = None
         else:
             deletable = [f for group in self.state_data.duplicate_groups
-                         for f in core_dupes.files_to_delete(group, tracked_paths)]
+                         for f in core_dupes.files_to_delete(group, tracked_basenames)]
             self.state_data.duplicate_deletable_count = len(deletable)
             self.state_data.duplicate_deletable_bytes = sum(f["size"] for f in deletable)
 
@@ -803,7 +809,7 @@ class Yarr(hass.Hass):
         if not self.cfg.media_scan_enabled:
             return
         try:
-            tracked_paths = self._all_tracked_media_paths()
+            tracked_basenames = self._all_tracked_media_basenames()
         except (RadarrError, SonarrError) as exc:
             self._log_event(f"Bulk duplicate delete aborted — could not fetch tracked files: {exc}",
                              level="error")
@@ -811,7 +817,7 @@ class Yarr(hass.Hass):
             return
 
         to_delete_by_group = [
-            (group, core_dupes.files_to_delete(group, tracked_paths))
+            (group, core_dupes.files_to_delete(group, tracked_basenames))
             for group in self.state_data.duplicate_groups]
         total_to_delete = sum(len(d) for _, d in to_delete_by_group)
 

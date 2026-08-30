@@ -2,6 +2,7 @@
 not unit tested (see clients/tmdb.py's docstring for why)."""
 
 import json
+import posixpath
 import urllib.error
 import urllib.request
 
@@ -92,11 +93,16 @@ class RadarrClient:
     def find_movie_id_by_file_path(self, path: str):
         """Looks up which movie owns a given file path — used to
         rename the surviving copy after a duplicate delete, since
-        Radarr's RenameMovie command needs a movieId, not a path."""
+        Radarr's RenameMovie command needs a movieId, not a path.
+        Matches on basename, not the full path: Radarr sees this file
+        through its own container's mount, yArr through Home
+        Assistant's /media share — the prefixes routinely differ even
+        for the identical physical file."""
+        target = posixpath.basename(path)
         _, movies = self._request("GET", "/movie")
         for m in movies or []:
             movie_file = m.get("movieFile")
-            if movie_file and movie_file.get("path") == path:
+            if movie_file and posixpath.basename(movie_file.get("path", "")) == target:
                 return m["id"]
         return None
 

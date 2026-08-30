@@ -45,17 +45,29 @@ def test_wasted_bytes_empty_groups():
     assert wasted_bytes([]) == 0
 
 
-def test_files_to_delete_keeps_the_one_tracked_path():
+def test_files_to_delete_keeps_the_one_tracked_basename():
     group = [{"path": "/media/a.mkv", "size": 1}, {"path": "/media/b.mkv", "size": 1}]
-    result = files_to_delete(group, tracked_paths={"/media/a.mkv"})
+    result = files_to_delete(group, tracked_basenames={"a.mkv"})
     assert result == [{"path": "/media/b.mkv", "size": 1}]
+
+
+def test_files_to_delete_matches_across_different_mount_prefixes():
+    # Radarr/Sonarr see the file via their own container's mount
+    # (/data/...), yArr sees the identical physical file via Home
+    # Assistant's /media share — different full paths, same basename.
+    group = [
+        {"path": "/media/unas_pro/downloads/tv/Show/S01E01.mkv", "size": 1},
+        {"path": "/media/unas_pro/downloads/tv/Show/S01E01 (copy).mkv", "size": 1},
+    ]
+    result = files_to_delete(group, tracked_basenames={"S01E01.mkv"})
+    assert result == [{"path": "/media/unas_pro/downloads/tv/Show/S01E01 (copy).mkv", "size": 1}]
 
 
 def test_files_to_delete_skips_group_when_nothing_tracked():
     group = [{"path": "/media/a.mkv", "size": 1}, {"path": "/media/b.mkv", "size": 1}]
-    assert files_to_delete(group, tracked_paths=set()) == []
+    assert files_to_delete(group, tracked_basenames=set()) == []
 
 
 def test_files_to_delete_skips_group_when_multiple_tracked():
     group = [{"path": "/media/a.mkv", "size": 1}, {"path": "/media/b.mkv", "size": 1}]
-    assert files_to_delete(group, tracked_paths={"/media/a.mkv", "/media/b.mkv"}) == []
+    assert files_to_delete(group, tracked_basenames={"a.mkv", "b.mkv"}) == []

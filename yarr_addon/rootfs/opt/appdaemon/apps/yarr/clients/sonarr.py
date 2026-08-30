@@ -4,6 +4,7 @@ clients/radarr.py's shape, keyed on tvdbId instead of tmdbId since
 that's what Sonarr's own Series resource uses natively."""
 
 import json
+import posixpath
 import urllib.error
 import urllib.request
 
@@ -116,7 +117,12 @@ class SonarrClient:
         where movieFile is embedded on the movie itself), and
         /episodefile needs a seriesId to query at all — see
         get_all_episode_file_paths's docstring — so this checks each
-        series' files in turn and stops at the first path match."""
+        series' files in turn and stops at the first match. Matches on
+        basename, not the full path: Sonarr sees this file through its
+        own container's mount, yArr through Home Assistant's /media
+        share — the prefixes routinely differ even for the identical
+        physical file."""
+        target = posixpath.basename(path)
         _, series_list = self._request("GET", "/series")
         for s in series_list or []:
             series_id = s.get("id")
@@ -124,7 +130,7 @@ class SonarrClient:
                 continue
             _, files = self._request("GET", f"/episodefile?seriesId={series_id}")
             for f in files or []:
-                if f.get("path") == path:
+                if posixpath.basename(f.get("path", "")) == target:
                     return series_id
         return None
 

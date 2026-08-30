@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.2
+
+- **Fixed the bulk-delete count being permanently stuck at 0** with no
+  error logged: the tracked-file match compared *full paths*, but
+  Radarr/Sonarr (their own Docker container's mount) and yArr (Home
+  Assistant's `/media` share) routinely see the identical physical
+  file at two different absolute paths — a normal consequence of
+  separate containers, not an edge case. Every group therefore always
+  looked "unmatched," silently. Confirmed via a real install: the log
+  showed successful scans with no compute error, yet the bulk-delete
+  button stayed disabled on every one. Fixed by matching on filename
+  instead of full path, for both the bulk-delete gate and the per-file
+  delete's rename-the-survivor step (which had the exact same silent
+  bug — it just never found a match and quietly did nothing).
+
 ## 0.11.1
 
 - **Fixed a broken web UI**: 0.11.0's "Keep It" button HTML was built

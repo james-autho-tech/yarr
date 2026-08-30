@@ -216,10 +216,10 @@ something it hasn't itself just reported. After a successful delete:
 
 **Bulk delete**: the Duplicates tab also has a **Delete All Inferior
 Duplicates** button. Each scan cross-checks every group against
-Radarr's/Sonarr's actually-tracked file paths and computes how many
-files are safe to remove — shown as "Safe to bulk-delete" next to the
-group count. A group only counts as safe when *exactly one* file in it
-matches a tracked path; if zero or more than one match, that group is
+Radarr's/Sonarr's actually-tracked files and computes how many are
+safe to remove — shown as "Safe to bulk-delete" next to the group
+count. A group only counts as safe when *exactly one* file in it
+matches a tracked file; if zero or more than one match, that group is
 left alone for manual review rather than guessed at. One click, one
 confirm (showing the count), then every safe file across every group
 is deleted in one pass, followed by a single Radarr/Sonarr rescan —
@@ -227,6 +227,16 @@ same empty-folder cleanup as the per-file delete, but no per-file
 rename pass (the survivor in a bulk-safe group is by definition already
 the file Radarr/Sonarr has tracked, so it should already match your
 naming format).
+
+The tracked-file match is by **filename, not full path** — Radarr/
+Sonarr almost always see your library through a different mount than
+yArr does (their own Docker container's own volume mount vs. Home
+Assistant's `/media` share pointed at the same NAS share), so the two
+sides' absolute paths for the identical physical file routinely don't
+match at all, only the filename does. Comparing full paths here would
+silently leave every group "unmatched" with no error — exactly what
+happened before this was fixed, with the bulk-delete count stuck at 0
+on every scan despite the scan itself succeeding.
 
 ## Troubleshooting
 
