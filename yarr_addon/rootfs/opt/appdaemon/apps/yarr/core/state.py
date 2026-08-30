@@ -140,6 +140,13 @@ class YarrState:
     duplicate_deletable_count: int = None
     duplicate_deletable_bytes: int = None
 
+    # Last scan's leftover-SABnzbd-unpack junk (see core/junk.py) — a
+    # plain list of {"path", "size", "is_dir"} dicts, found in the same
+    # filesystem walk as duplicate_groups. Deleting is always an
+    # explicit per-item user action in the web UI, never automatic.
+    junk_entries: list = field(default_factory=list)
+    junk_scan_at: str = None
+
 
 def _film_to_dict(film):
     return asdict(film)
@@ -199,6 +206,8 @@ def load(path: str) -> YarrState:
         duplicate_scan_at=raw.get("duplicate_scan_at"),
         duplicate_deletable_count=raw.get("duplicate_deletable_count"),
         duplicate_deletable_bytes=raw.get("duplicate_deletable_bytes"),
+        junk_entries=list(raw.get("junk_entries", [])),
+        junk_scan_at=raw.get("junk_scan_at"),
     )
 
 
@@ -226,6 +235,8 @@ def save(state: YarrState, path: str) -> None:
         "duplicate_scan_at": state.duplicate_scan_at,
         "duplicate_deletable_count": state.duplicate_deletable_count,
         "duplicate_deletable_bytes": state.duplicate_deletable_bytes,
+        "junk_entries": state.junk_entries,
+        "junk_scan_at": state.junk_scan_at,
     }
     try:
         with open(path, "w") as f:

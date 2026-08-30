@@ -162,7 +162,7 @@ size left, ETA, up to 10 in-progress items) every 60 seconds, and the
 web UI gets a SABnzbd card. Read-only — yArr never pauses, cancels, or
 reorders anything in the queue.
 
-## Duplicate media scan (optional)
+## Media cleanup: duplicates + failed unpacks (optional)
 
 Finds candidate duplicate files directly on your NAS by exact file
 size — a strong signal on its own for video files above a size floor
@@ -237,6 +237,25 @@ match at all, only the filename does. Comparing full paths here would
 silently leave every group "unmatched" with no error — exactly what
 happened before this was fixed, with the bulk-delete count stuck at 0
 on every scan despite the scan itself succeeding.
+
+**Failed unpacks / junk** (same tab, same scan pass): SABnzbd renames
+a download's working folder to `_UNPACK_<name>` while extracting it,
+or `_FAILED_<name>` if extraction errors out, and normally cleans up
+after a successful unpack. A failed or interrupted unpack can leave
+that folder sitting there indefinitely — and if it's inside a path
+Jellyfin scans, Jellyfin shows it as a bogus library entry (this is
+the usual cause of a stray "UNPACK" item showing up in Jellyfin). The
+same scan pass also looks for stray raw archive pieces (`.rar`,
+`.r00`-`.r99`, `.par2`) that never got extracted into anything at all.
+Both are reported under **Failed Unpacks / Junk** in the same tab,
+each with its own Delete button. Deleting a folder here removes it and
+everything inside it (`shutil.rmtree`, not a single file) — same
+"only ever a path from the last scan" safety rule as the duplicate
+delete. After a successful delete, yArr also asks Jellyfin to refresh
+its library (`POST /Library/Refresh`) so the bogus entry disappears
+right away instead of waiting for Jellyfin's own next scheduled scan —
+the only write this add-on ever makes to Jellyfin; everything else is
+read-only.
 
 ## Troubleshooting
 

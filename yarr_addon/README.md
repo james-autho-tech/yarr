@@ -30,17 +30,22 @@ monitoring — bundling its own AppDaemon runtime.
 - **SABnzbd monitoring (optional)**: read-only queue status (speed,
   ETA, active downloads) as an HA sensor and a web UI card — yArr never
   queues, pauses, or cancels anything in SABnzbd itself.
-- **Duplicate media scan (optional)**: scans your NAS (via HA's own
-  `/media` share) for files sharing an identical size — a strong,
-  cheap signal for duplicate video files — and lists candidate groups
-  in the web UI. Delete one file at a time, or use **Delete All
+- **Media cleanup (optional)**: scans your NAS (via HA's own `/media`
+  share) for files sharing an identical size — a strong, cheap signal
+  for duplicate video files — and lists candidate groups in the web
+  UI's Cleanup tab. Delete one file at a time, or use **Delete All
   Inferior Duplicates** to clear every group in one click where
   exactly one file matches Radarr's/Sonarr's tracked copy (ambiguous
-  groups are always left for manual review). Either way it cleans up
-  any now-empty folder left behind and triggers a Radarr/Sonarr rescan
-  — but yArr never deletes anything without you pressing a button.
+  groups are always left for manual review). The same scan also finds
+  leftover SABnzbd extraction junk — an `_UNPACK_`/`_FAILED_` folder
+  left behind by a failed unpack (the usual cause of a bogus "UNPACK"
+  entry in Jellyfin), or a stray archive piece that never got
+  extracted — with its own Delete button that also refreshes
+  Jellyfin's library afterward. Every delete cleans up any now-empty
+  folder left behind and triggers a Radarr/Sonarr rescan — but yArr
+  never deletes anything without you pressing a button.
 
-TV/Sonarr, SABnzbd, and the duplicate scan are all entirely opt-in —
+TV/Sonarr, SABnzbd, and the media cleanup scan are all entirely opt-in —
 leave their Configuration-tab fields / apps.yaml paths blank to run
 movies-only with no monitoring or scanning.
 

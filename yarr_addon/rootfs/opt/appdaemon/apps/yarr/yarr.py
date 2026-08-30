@@ -1,4 +1,5 @@
 import os
+import shutil
 from datetime import datetime, timedelta, timezone
 
 # config.yaml's version is the single source of truth (set by `run`
@@ -14,6 +15,7 @@ from core import surprise as core_surprise
 from core import webhook as core_webhook
 from core import taste as core_taste
 from core import dupes as core_dupes
+from core import junk as core_junk
 
 from clients.tmdb import TMDBClient, TMDBError
 from clients.radarr import RadarrClient, RadarrError
@@ -76,6 +78,7 @@ class Yarr(hass.Hass):
             self.listen_event(self.on_scan_duplicates_now_pressed, "yarr_scan_duplicates_now")
             self.listen_event(self.on_delete_duplicate_file, "yarr_delete_duplicate_file")
             self.listen_event(self.on_bulk_delete_duplicates_pressed, "yarr_bulk_delete_duplicates")
+            self.listen_event(self.on_delete_junk_entry, "yarr_delete_junk_entry")
         self.listen_event(self.on_jellyfin_webhook, "yarr_jellyfin_webhook")
 
         self.run_every(self.tick_discovery, "now", self.cfg.discovery_interval_hours * 3600)
@@ -725,23 +728,54 @@ class Yarr(hass.Hass):
     # DUPLICATE MEDIA SCAN (read-only, report-only)
     # ------------------------------------------------------------------
 
-    def _walk_media_files(self):
+    @staticmethod
+    def _dir_size(path) -> int:
+        total = 0
+        for dirpath, _dirnames, filenames in os.walk(path):
+            for name in filenames:
+                try:
+                    total += os.path.getsize(os.path.join(dirpath, name))
+                except OSError:
+                    continue
+        return total
+
+    def _walk_media_and_junk(self):
         """The actual filesystem I/O — deliberately kept out of
-        core/dupes.py so that module stays pure/unit-testable. Any
+        core/dupes.py and core/junk.py so those stay pure/unit-testable.
+        Single os.walk pass per root feeding both the duplicate scan
+        and the leftover-SABnzbd-unpack-junk scan, rather than walking
+        a (potentially huge, network-mounted) library twice. Any
         unreadable file/directory is skipped rather than aborting the
         whole scan (permissions quirks on a network share are common
-        and shouldn't take out the rest of the results)."""
-        files = []
+        and shouldn't take out the rest of the results). A directory
+        matching core_junk's _UNPACK_/_FAILED_ naming is recorded whole
+        and never descended into — everything inside it is being
+        deleted as one unit, not inspected file-by-file."""
+        media_files = []
+        junk_entries = []
         for root_path in self.cfg.media_scan_paths:
-            for dirpath, _dirnames, filenames in os.walk(root_path):
+            for dirpath, dirnames, filenames in os.walk(root_path):
+                keep_dirs = []
+                for d in dirnames:
+                    if core_junk.is_junk_dir_name(d):
+                        full_path = os.path.join(dirpath, d)
+                        junk_entries.append(
+                            {"path": full_path, "size": self._dir_size(full_path), "is_dir": True})
+                    else:
+                        keep_dirs.append(d)
+                dirnames[:] = keep_dirs
+
                 for name in filenames:
                     full_path = os.path.join(dirpath, name)
                     try:
                         size = os.path.getsize(full_path)
                     except OSError:
                         continue
-                    files.append(core_dupes.MediaFile(path=full_path, size=size))
-        return files
+                    if core_junk.is_junk_file_name(name):
+                        junk_entries.append({"path": full_path, "size": size, "is_dir": False})
+                        continue
+                    media_files.append(core_dupes.MediaFile(path=full_path, size=size))
+        return media_files, junk_entries
 
     def _all_tracked_media_basenames(self) -> set:
         """Every tracked file's BASENAME — not full path — that Radarr
@@ -766,7 +800,7 @@ class Yarr(hass.Hass):
         if not self.cfg.media_scan_enabled:
             return
         try:
-            files = self._walk_media_files()
+            files, junk_entries = self._walk_media_and_junk()
         except OSError as exc:
             self._log_event(f"Media duplicate scan failed: {exc}", level="error")
             self.publish_status({})
@@ -777,6 +811,8 @@ class Yarr(hass.Hass):
         self.state_data.duplicate_groups = [
             [{"path": f.path, "size": f.size} for f in group] for group in groups]
         self.state_data.duplicate_scan_at = datetime.now(timezone.utc).isoformat()
+        self.state_data.junk_entries = junk_entries
+        self.state_data.junk_scan_at = self.state_data.duplicate_scan_at
 
         try:
             tracked_basenames = self._all_tracked_media_basenames()
@@ -798,6 +834,10 @@ class Yarr(hass.Hass):
                              f"(~{wasted_gb:.1f} GB) — review in the web UI.")
         else:
             self._log_event("Media scan: no duplicates found.")
+        if junk_entries:
+            junk_gb = sum(e["size"] for e in junk_entries) / 1_000_000_000
+            self._log_event(f"Media scan: {len(junk_entries)} leftover unpack/junk item(s) found "
+                             f"(~{junk_gb:.1f} GB) — review in the web UI.")
         self.publish_status({})
 
     def on_bulk_delete_duplicates_pressed(self, event_name, data, kwargs):
@@ -970,6 +1010,50 @@ class Yarr(hass.Hass):
 
         self.publish_status({})
 
+    def on_delete_junk_entry(self, event_name, data, kwargs):
+        """Deletes exactly one leftover-SABnzbd-unpack junk entry — a
+        whole directory (shutil.rmtree) for an _UNPACK_/_FAILED_
+        folder, or a single stray archive-part file. Same safety rule
+        as on_delete_duplicate_file: only ever acts on a path that was
+        actually part of the last scan's results, never an arbitrary
+        path from the event payload. Refreshes Jellyfin's library
+        afterward — the one write this add-on ever makes to Jellyfin —
+        so the bogus entry these folders cause disappears without
+        waiting for Jellyfin's own scheduled scan."""
+        path = (data or {}).get("path")
+        if not path:
+            return
+        entry = next((e for e in self.state_data.junk_entries if e["path"] == path), None)
+        if entry is None:
+            self._log_event(f"Refused to delete {path!r} — not part of the last scan.", level="error")
+            self.publish_status({})
+            return
+        if self.cfg.dry_run:
+            self._log_event(f"[dry_run] Would delete junk {'folder' if entry['is_dir'] else 'file'}: "
+                             f"{path!r}.")
+            self.publish_status({})
+            return
+        try:
+            if entry["is_dir"]:
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
+        except OSError as exc:
+            self._log_event(f"Could not delete {path!r}: {exc}", level="error")
+            self.publish_status({})
+            return
+        self._cleanup_empty_dirs(path)
+
+        self.state_data.junk_entries = [e for e in self.state_data.junk_entries if e["path"] != path]
+        self._log_event(f"Deleted junk {'folder' if entry['is_dir'] else 'file'}: {path!r}.")
+
+        try:
+            self.jellyfin.refresh_library()
+        except JellyfinError as exc:
+            self._log_event(f"Jellyfin library refresh after junk delete failed: {exc}", level="warn")
+
+        self.publish_status({})
+
     # ------------------------------------------------------------------
     # SABNZBD MONITORING (read-only)
     # ------------------------------------------------------------------
@@ -1064,6 +1148,10 @@ class Yarr(hass.Hass):
                 "duplicate_scan_at": self.state_data.duplicate_scan_at,
                 "duplicate_deletable_count": self.state_data.duplicate_deletable_count,
                 "duplicate_deletable_bytes": self.state_data.duplicate_deletable_bytes,
+                "junk_entries": self.state_data.junk_entries[:50],
+                "junk_count": len(self.state_data.junk_entries),
+                "junk_bytes": sum(e["size"] for e in self.state_data.junk_entries),
+                "junk_scan_at": self.state_data.junk_scan_at,
             })
         self.set_state("sensor.yarr_status",
                         state="Not Configured" if self.missing_secrets else "OK",

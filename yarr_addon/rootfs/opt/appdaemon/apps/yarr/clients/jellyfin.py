@@ -43,6 +43,19 @@ class JellyfinClient:
         except urllib.error.HTTPError as exc:
             raise JellyfinError(f"GET {path} failed: HTTP {exc.code}") from exc
 
+    def refresh_library(self) -> None:
+        """POST /Library/Refresh — the one write this client ever makes
+        (everything else here only reads). Used after deleting a
+        leftover SABnzbd unpack folder so the bogus entry it caused
+        disappears from Jellyfin without waiting for its own scheduled
+        scan."""
+        req = urllib.request.Request(
+            f"{self.url}/Library/Refresh", method="POST", headers=self._headers())
+        try:
+            urllib.request.urlopen(req, timeout=15)
+        except urllib.error.HTTPError as exc:
+            raise JellyfinError(f"POST /Library/Refresh failed: HTTP {exc.code}") from exc
+
     def get_item_provider_ids(self, item_id: str):
         """-> (tmdb_id | None, imdb_id | None). Swallows errors (returns
         (None, None)) — this is only ever a best-effort fallback."""

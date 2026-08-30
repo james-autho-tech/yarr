@@ -79,6 +79,12 @@ BASE_STATUS_ATTRS = {
     "duplicate_scan_at": "2026-08-30T17:00:00+00:00",
     "duplicate_deletable_count": 1,
     "duplicate_deletable_bytes": 4_000_000_000,
+    "junk_entries": [
+        {"path": "/media/tv/Show/_UNPACK_Show.S01E01", "size": 1_500_000_000, "is_dir": True},
+    ],
+    "junk_count": 1,
+    "junk_bytes": 1_500_000_000,
+    "junk_scan_at": "2026-08-30T17:00:00+00:00",
     "log": [{"ts": "2026-08-30T17:00:00+00:00", "level": "info", "message": "Initial state."}],
 }
 
@@ -156,7 +162,7 @@ def test_page_loads_all_tabs_no_errors(browser_page):
     try:
         page.goto(f"http://127.0.0.1:{port}/")
         page.wait_for_selector("text=Surprise Me Now")
-        for tab in ["Movies", "TV", "SABnzbd", "Duplicates", "Log"]:
+        for tab in ["Movies", "TV", "SABnzbd", "Cleanup", "Log"]:
             page.click(f"button.tab-btn:has-text('{tab}')")
         assert errors == []
     finally:
@@ -185,12 +191,14 @@ def test_every_action_button_fires_and_does_not_crash(browser_page):
         tv.get_by_role("button", name="Surprise Me Now (TV)", exact=True).click()
         page.wait_for_timeout(1500)
 
-        page.click("button.tab-btn:has-text('Duplicates')")
+        page.click("button.tab-btn:has-text('Cleanup')")
         dupes.get_by_role("button", name="Scan Now", exact=True).click()
         page.wait_for_timeout(1500)
         dupes.get_by_role("button", name="Delete All Inferior Duplicates", exact=True).click()
         page.wait_for_timeout(1500)
         dupes.get_by_role("button", name="Delete", exact=True).first.click()
+        page.wait_for_timeout(1500)
+        dupes.get_by_role("button", name="Delete", exact=True).last.click()
         page.wait_for_timeout(1500)
 
         assert errors == []
@@ -201,6 +209,7 @@ def test_every_action_button_fires_and_does_not_crash(browser_page):
         assert "yarr_scan_duplicates_now" in fired_names
         assert "yarr_bulk_delete_duplicates" in fired_names
         assert "yarr_delete_duplicate_file" in fired_names
+        assert "yarr_delete_junk_entry" in fired_names
         assert "set_state:input_boolean.yarr_keep_surprise" in fired_names
     finally:
         httpd.shutdown()

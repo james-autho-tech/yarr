@@ -119,6 +119,10 @@ def build_status():
         "duplicate_scan_at": attrs.get("duplicate_scan_at"),
         "duplicate_deletable_count": attrs.get("duplicate_deletable_count"),
         "duplicate_deletable_bytes": attrs.get("duplicate_deletable_bytes"),
+        "junk_entries": attrs.get("junk_entries", []),
+        "junk_count": attrs.get("junk_count", 0),
+        "junk_bytes": attrs.get("junk_bytes", 0),
+        "junk_scan_at": attrs.get("junk_scan_at"),
 
         "log": attrs.get("log", []),
     }
@@ -260,7 +264,7 @@ button.small-delete:disabled:hover{color:var(--faint);border-color:var(--edge)}
   <button class="tab-btn" data-tab="movies" onclick="selectTab('movies')">Movies</button>
   <button class="tab-btn" data-tab="tv" id="nav-tv" style="display:none" onclick="selectTab('tv')">TV</button>
   <button class="tab-btn" data-tab="sabnzbd" id="nav-sabnzbd" style="display:none" onclick="selectTab('sabnzbd')">SABnzbd</button>
-  <button class="tab-btn" data-tab="dupes" id="nav-dupes" style="display:none" onclick="selectTab('dupes')">Duplicates</button>
+  <button class="tab-btn" data-tab="dupes" id="nav-dupes" style="display:none" onclick="selectTab('dupes')">Cleanup</button>
   <button class="tab-btn" data-tab="log" onclick="selectTab('log')">Log</button>
 </nav>
 <main>
@@ -487,6 +491,7 @@ async function refresh() {
   const dupesSection = document.getElementById('dupes-section');
   if (d.media_scan_enabled) {
     const groups = d.duplicate_groups || [];
+    const junk = d.junk_entries || [];
     dupesSection.innerHTML = `
       <div class="section-head"><span class="section-title">Duplicates</span>
         <span class="section-note">last scan ${d.duplicate_scan_at ? fmtDate(d.duplicate_scan_at) : 'never'}</span></div>
@@ -507,6 +512,18 @@ async function refresh() {
             <td><button class="small-delete" onclick="runAction(this,'api/delete-duplicate-file',{path:${escAttr(JSON.stringify(f.path))}},{confirmMsg:'Delete this file from disk now? This cannot be undone.'})">Delete</button></td></tr>`).join('')}
         </tbody></table>
       `).join('') : '<div class="empty-row">No duplicate groups found.</div>'}
+
+      <div class="section-head" style="margin-top:30px"><span class="section-title">Failed Unpacks / Junk</span>
+        <span class="section-note">last scan ${d.junk_scan_at ? fmtDate(d.junk_scan_at) : 'never'}</span></div>
+      <div class="stat-row">
+        <div class="stat"><div class="lbl">Items found</div><div class="val">${d.junk_count||0}</div></div>
+        <div class="stat"><div class="lbl">Space wasted</div><div class="val small">${fmtBytes(d.junk_bytes||0)}</div></div>
+      </div>
+      <div class="mode-line">Leftover SABnzbd extraction junk: an _UNPACK_/_FAILED_ folder left behind by a failed or interrupted unpack, or a stray archive piece that never got extracted — the usual cause of a bogus "UNPACK" entry showing up in Jellyfin. Deleting a folder here removes it and everything inside it, and refreshes Jellyfin's library afterward.</div>
+      ${junk.length ? `<table class="list" style="margin:14px 0"><thead><tr><th>Item</th><th>Size</th><th></th></tr></thead><tbody>
+        ${junk.map(j => `<tr><td class="title-cell" title="${esc(j.path)}">${esc(baseName(j.path))}${j.is_dir ? ' <span class="section-note">(folder)</span>' : ''}</td><td class="year">${fmtBytes(j.size)}</td>
+          <td><button class="small-delete" onclick="runAction(this,'api/delete-junk-entry',{path:${escAttr(JSON.stringify(j.path))}},{confirmMsg:${escAttr(JSON.stringify(j.is_dir ? 'Delete this entire folder and everything inside it? This cannot be undone.' : 'Delete this file from disk now? This cannot be undone.'))}})">Delete</button></td></tr>`).join('')}
+      </tbody></table>` : '<div class="empty-row" style="margin-top:14px">No leftover unpack junk found.</div>'}
     `;
   }
 
@@ -595,6 +612,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")
             elif path.endswith("/api/bulk-delete-duplicates"):
                 ha_fire_event("yarr_bulk_delete_duplicates")
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/delete-junk-entry"):
+                file_path = self._read_json_body().get("path")
+                ha_fire_event("yarr_delete_junk_entry", {"path": file_path})
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")

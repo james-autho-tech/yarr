@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.12.0
+
+- Added **failed-unpack / junk cleanup** to the media scan (Duplicates
+  tab, renamed **Cleanup**): detects `_UNPACK_`/`_FAILED_` folders
+  SABnzbd leaves behind after a failed or interrupted extraction (the
+  usual cause of a bogus "UNPACK" entry showing up in Jellyfin), plus
+  stray archive pieces (`.rar`/`.r00`-`.r99`/`.par2`) that never got
+  extracted at all. Found in the same filesystem walk as the duplicate
+  scan, at no extra scanning cost. Each item gets its own Delete button
+  — a whole-folder delete for an unpack folder, a single-file delete
+  for a stray archive piece — with the same "only ever a path from the
+  last scan" safety rule as duplicate delete. After deleting, yArr also
+  refreshes Jellyfin's library so the bogus entry disappears right away
+  instead of waiting for Jellyfin's own scan — the first write this
+  add-on ever makes to Jellyfin; everything else there stays read-only.
+
 ## 0.11.2
 
 - **Fixed the bulk-delete count being permanently stuck at 0** with no
