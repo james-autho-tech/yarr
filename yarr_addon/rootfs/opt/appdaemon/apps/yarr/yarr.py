@@ -2,10 +2,6 @@ import os
 import shutil
 from datetime import datetime, timedelta, timezone
 
-# config.yaml's version is the single source of truth (set by `run`
-# via YARR_VERSION) instead of a separate hardcoded constant.
-VERSION = os.environ.get("YARR_VERSION") or "dev"
-
 import appdaemon.plugins.hass.hassapi as hass
 
 from core.config import build_config, required_secrets_ok, ConfigError
@@ -22,6 +18,10 @@ from clients.radarr import RadarrClient, RadarrError
 from clients.sonarr import SonarrClient, SonarrError
 from clients.jellyfin import JellyfinClient, JellyfinError
 from clients.sabnzbd import SABnzbdClient, SABnzbdError
+
+# config.yaml's version is the single source of truth (set by `run`
+# via YARR_VERSION) instead of a separate hardcoded constant.
+VERSION = os.environ.get("YARR_VERSION") or "dev"
 
 CONFIG_DIR = "/config/apps/yarr"
 STATE_PATH = os.path.join(CONFIG_DIR, "yarr_state.json")

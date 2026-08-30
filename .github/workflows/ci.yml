@@ -19,6 +19,49 @@ jobs:
       - name: Run tests
         run: python3 -m pytest yarr_addon/tests/ -q
 
+  lint-python:
+    name: Python lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install ruff
+      - name: Run ruff
+        # E4/E7/E9/F only (ruff's own conservative default selection):
+        # unused/undefined names, unreachable code, obviously broken
+        # syntax-adjacent mistakes. Deliberately not the full "ALL"
+        # ruleset — this is a bug-catcher, not a style enforcer, for a
+        # one-person add-on that doesn't need a formatting debate.
+        run: |
+          python3 -m ruff check --select E4,E7,E9,F \
+            yarr_addon/rootfs/opt/appdaemon/apps/yarr/yarr.py \
+            yarr_addon/rootfs/opt/appdaemon/apps/yarr/core/ \
+            yarr_addon/rootfs/opt/appdaemon/apps/yarr/clients/ \
+            yarr_addon/rootfs/opt/yarr-web/webui.py \
+            yarr_addon/tests/
+
+  version-check:
+    name: config.yaml version matches CHANGELOG.md's top entry
+    runs-on: ubuntu-latest
+    # Our own workflow is to bump both on every push. This has already
+    # been forgotten before during a fast iteration cycle — catch it
+    # here instead of noticing later.
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare versions
+        run: |
+          CONFIG_VERSION=$(grep -m1 '^version:' yarr_addon/config.yaml | sed -E 's/version: *"([^"]+)"/\1/')
+          CHANGELOG_VERSION=$(grep -m1 '^## ' yarr_addon/CHANGELOG.md | sed -E 's/^## *//')
+          echo "config.yaml version: $CONFIG_VERSION"
+          echo "CHANGELOG.md top entry: $CHANGELOG_VERSION"
+          if [ "$CONFIG_VERSION" != "$CHANGELOG_VERSION" ]; then
+            echo "::error::config.yaml version ($CONFIG_VERSION) does not match CHANGELOG.md's top entry ($CHANGELOG_VERSION)"
+            exit 1
+          fi
+
   lint-addon:
     name: Validate yarr_addon/config.yaml against HA's add-on schema
     runs-on: ubuntu-latest
@@ -121,3 +164,17 @@ jobs:
             --build-arg BUILD_FROM=${{ steps.base.outputs.image }} \
             -t yarr-addon-ci-build \
             ./yarr_addon
+      - name: Scan image for known vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: "yarr-addon-ci-build"
+          format: "table"
+          severity: "CRITICAL,HIGH"
+          # Report-only, not blocking: most findings here will be in
+          # the inherited Alpine base image or its system packages,
+          # which this add-on has no ability to patch directly (that's
+          # on Home Assistant's own base-image releases) — failing CI
+          # on every upstream CVE would just train everyone to ignore
+          # a permanently-red pipeline. Findings still show up in the
+          # Actions log on every push for visibility/periodic review.
+          exit-code: "0"
