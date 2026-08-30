@@ -82,6 +82,13 @@ class RadarrClient:
         instead of waiting for its own periodic disk scan."""
         self._request("POST", "/command", {"name": "RefreshMovie"})
 
+    def get_all_movie_file_paths(self) -> set:
+        """Every file path Radarr currently tracks — used to tell a
+        duplicate scan's tracked copy apart from a stray leftover
+        (bulk duplicate delete), without a per-file lookup."""
+        _, movies = self._request("GET", "/movie")
+        return {m["movieFile"]["path"] for m in (movies or []) if m.get("movieFile")}
+
     def find_movie_id_by_file_path(self, path: str):
         """Looks up which movie owns a given file path — used to
         rename the surviving copy after a duplicate delete, since

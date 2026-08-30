@@ -214,6 +214,20 @@ something it hasn't itself just reported. After a successful delete:
   file. Best-effort: a failure here is logged but never undoes the
   delete itself.
 
+**Bulk delete**: the Duplicates tab also has a **Delete All Inferior
+Duplicates** button. Each scan cross-checks every group against
+Radarr's/Sonarr's actually-tracked file paths and computes how many
+files are safe to remove — shown as "Safe to bulk-delete" next to the
+group count. A group only counts as safe when *exactly one* file in it
+matches a tracked path; if zero or more than one match, that group is
+left alone for manual review rather than guessed at. One click, one
+confirm (showing the count), then every safe file across every group
+is deleted in one pass, followed by a single Radarr/Sonarr rescan —
+same empty-folder cleanup as the per-file delete, but no per-file
+rename pass (the survivor in a bulk-safe group is by definition already
+the file Radarr/Sonarr has tracked, so it should already match your
+naming format).
+
 ## Troubleshooting
 
 - **"Surprise Me Now" (or the webhook, or the keep-it toggle) does

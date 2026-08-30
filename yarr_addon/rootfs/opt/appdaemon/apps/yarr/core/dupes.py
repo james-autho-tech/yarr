@@ -37,3 +37,17 @@ def wasted_bytes(groups) -> int:
     """Every file in a group shares the same size by construction —
     "wasted" is all but one copy per group."""
     return sum(group[0].size * (len(group) - 1) for group in groups)
+
+
+def files_to_delete(group, tracked_paths) -> list:
+    """Given a duplicate group (list of {"path", "size"} dicts, as
+    persisted in state) and the set of file paths Radarr/Sonarr
+    actually track, returns the ones to delete — everything in the
+    group except the single tracked copy. Deliberately returns an
+    empty list (leave the group for manual review) unless EXACTLY one
+    file in the group is tracked: guessing when zero or more than one
+    match would risk deleting the wrong copy, or the only copy."""
+    tracked_in_group = [f for f in group if f["path"] in tracked_paths]
+    if len(tracked_in_group) != 1:
+        return []
+    return [f for f in group if f["path"] not in tracked_paths]

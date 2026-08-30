@@ -33,10 +33,12 @@ monitoring — bundling its own AppDaemon runtime.
 - **Duplicate media scan (optional)**: scans your NAS (via HA's own
   `/media` share) for files sharing an identical size — a strong,
   cheap signal for duplicate video files — and lists candidate groups
-  in the web UI. Deleting is manual and per-file: a Delete button next
-  to each file removes it from disk, cleans up any now-empty folder
-  left behind, renames the surviving copy if needed, and triggers a
-  Radarr/Sonarr rescan — but yArr never deletes anything on its own.
+  in the web UI. Delete one file at a time, or use **Delete All
+  Inferior Duplicates** to clear every group in one click where
+  exactly one file matches Radarr's/Sonarr's tracked copy (ambiguous
+  groups are always left for manual review). Either way it cleans up
+  any now-empty folder left behind and triggers a Radarr/Sonarr rescan
+  — but yArr never deletes anything without you pressing a button.
 
 TV/Sonarr, SABnzbd, and the duplicate scan are all entirely opt-in —
 leave their Configuration-tab fields / apps.yaml paths blank to run

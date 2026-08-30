@@ -124,11 +124,21 @@ class YarrState:
     accepted_genre_counts: dict = field(default_factory=dict)
 
     # Last duplicate-media scan's results (see core/dupes.py) — a plain
-    # list of groups, each a list of {"path", "size"} dicts. Report-only,
-    # never acted on automatically; just carried across restarts so the
-    # web UI has something to show before the next scan completes.
+    # list of groups, each a list of {"path", "size"} dicts. Deleting is
+    # always an explicit user action (single-file or bulk button in the
+    # web UI), never automatic; just carried across restarts so the web
+    # UI has something to show before the next scan completes.
     duplicate_groups: list = field(default_factory=list)
     duplicate_scan_at: str = None
+
+    # How many of the current duplicate_groups' files the bulk-delete
+    # button would remove, and how many bytes that'd free — computed at
+    # scan time (see yarr.py's tick_scan_duplicates) by cross-checking
+    # against Radarr/Sonarr's actually-tracked file paths. None means
+    # that check couldn't be done (e.g. Radarr/Sonarr unreachable at
+    # scan time), which the web UI treats as "unknown", not zero.
+    duplicate_deletable_count: int = None
+    duplicate_deletable_bytes: int = None
 
 
 def _film_to_dict(film):
@@ -187,6 +197,8 @@ def load(path: str) -> YarrState:
         accepted_genre_counts=dict(raw.get("accepted_genre_counts", {})),
         duplicate_groups=list(raw.get("duplicate_groups", [])),
         duplicate_scan_at=raw.get("duplicate_scan_at"),
+        duplicate_deletable_count=raw.get("duplicate_deletable_count"),
+        duplicate_deletable_bytes=raw.get("duplicate_deletable_bytes"),
     )
 
 
@@ -212,6 +224,8 @@ def save(state: YarrState, path: str) -> None:
         "accepted_genre_counts": state.accepted_genre_counts,
         "duplicate_groups": state.duplicate_groups,
         "duplicate_scan_at": state.duplicate_scan_at,
+        "duplicate_deletable_count": state.duplicate_deletable_count,
+        "duplicate_deletable_bytes": state.duplicate_deletable_bytes,
     }
     try:
         with open(path, "w") as f:

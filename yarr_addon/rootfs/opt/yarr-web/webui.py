@@ -117,6 +117,8 @@ def build_status():
         "duplicate_group_count": attrs.get("duplicate_group_count", 0),
         "duplicate_wasted_bytes": attrs.get("duplicate_wasted_bytes", 0),
         "duplicate_scan_at": attrs.get("duplicate_scan_at"),
+        "duplicate_deletable_count": attrs.get("duplicate_deletable_count"),
+        "duplicate_deletable_bytes": attrs.get("duplicate_deletable_bytes"),
 
         "log": attrs.get("log", []),
     }
@@ -430,9 +432,13 @@ async function refresh() {
       <div class="stat-row">
         <div class="stat"><div class="lbl">Groups found</div><div class="val">${d.duplicate_group_count||0}</div></div>
         <div class="stat"><div class="lbl">Space wasted</div><div class="val small">${fmtBytes(d.duplicate_wasted_bytes||0)}</div></div>
+        <div class="stat"><div class="lbl">Safe to bulk-delete</div><div class="val small">${d.duplicate_deletable_count==null ? 'unknown' : d.duplicate_deletable_count + ' file(s) / ' + fmtBytes(d.duplicate_deletable_bytes||0)}</div></div>
       </div>
-      <div class="mode-line">Same file size is the signal — review before deleting. Deleting here removes the file from disk immediately and tells Radarr/Sonarr to rescan.</div>
-      <div style="margin:14px 0 18px"><button onclick="scanDuplicatesNow()">Scan Now</button></div>
+      <div class="mode-line">Same file size is the signal — review before deleting. Deleting here removes the file from disk immediately and tells Radarr/Sonarr to rescan. "Safe to bulk-delete" only counts groups where exactly one file matches Radarr/Sonarr's tracked copy, as of the last scan.</div>
+      <div style="margin:14px 0 18px;display:flex;gap:10px;flex-wrap:wrap">
+        <button onclick="scanDuplicatesNow()">Scan Now</button>
+        <button class="ghost" onclick="bulkDeleteDuplicates(${d.duplicate_deletable_count||0})" ${!d.duplicate_deletable_count ? 'disabled' : ''}>Delete All Inferior Duplicates</button>
+      </div>
       ${groups.length ? groups.map(g => `
         <table class="list" style="margin-bottom:14px"><thead><tr><th>File</th><th>Size</th><th></th></tr></thead><tbody>
           ${g.map(f => `<tr><td class="title-cell" title="${esc(f.path)}">${esc(baseName(f.path))}</td><td class="year">${fmtBytes(f.size)}</td>
@@ -465,6 +471,7 @@ async function deleteSurprise(id){ if(!confirm('Delete this from Radarr now?')) 
 async function deleteTvSurprise(id){ if(!confirm('Delete this from Sonarr now?')) return; await post('api/delete-surprise-tv', {id}); refresh(); }
 async function scanDuplicatesNow(){ await post('api/scan-duplicates-now'); refresh(); }
 async function deleteDuplicateFile(path){ if(!confirm('Delete this file from disk now? This cannot be undone.')) return; await post('api/delete-duplicate-file', {path}); refresh(); }
+async function bulkDeleteDuplicates(count){ if(!confirm(`Delete ${count} duplicate file(s) whose group has a single Radarr/Sonarr-tracked copy? Ambiguous groups are skipped. This cannot be undone.`)) return; await post('api/bulk-delete-duplicates'); refresh(); }
 refresh();
 setInterval(refresh, 5000);
 </script>
@@ -530,6 +537,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             elif path.endswith("/api/delete-duplicate-file"):
                 file_path = self._read_json_body().get("path")
                 ha_fire_event("yarr_delete_duplicate_file", {"path": file_path})
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/bulk-delete-duplicates"):
+                ha_fire_event("yarr_bulk_delete_duplicates")
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")

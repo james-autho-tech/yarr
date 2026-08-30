@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.0
+
+- Added a **Delete All Inferior Duplicates** bulk button to the
+  Duplicates tab. Each scan now also cross-checks every duplicate group
+  against Radarr's/Sonarr's actually-tracked file paths and computes a
+  "safe to bulk-delete" count/size — a group only counts as safe when
+  exactly one file in it matches a tracked path; zero or multiple
+  matches leaves that group untouched for manual review instead of
+  guessing. Still entirely manual: one click, one confirm showing the
+  count, then every safe file is deleted in a single pass (with the
+  same empty-folder cleanup and Radarr/Sonarr rescan as the per-file
+  delete) — nothing happens on its own, no scheduled auto-delete.
+
 ## 0.9.2
 
 - Fixed the Duplicates tab's per-file **Delete** button doing nothing:

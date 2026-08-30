@@ -75,6 +75,7 @@ class Yarr(hass.Hass):
         if self.cfg.media_scan_enabled:
             self.listen_event(self.on_scan_duplicates_now_pressed, "yarr_scan_duplicates_now")
             self.listen_event(self.on_delete_duplicate_file, "yarr_delete_duplicate_file")
+            self.listen_event(self.on_bulk_delete_duplicates_pressed, "yarr_bulk_delete_duplicates")
         self.listen_event(self.on_jellyfin_webhook, "yarr_jellyfin_webhook")
 
         self.run_every(self.tick_discovery, "now", self.cfg.discovery_interval_hours * 3600)
@@ -730,6 +731,16 @@ class Yarr(hass.Hass):
                     files.append(core_dupes.MediaFile(path=full_path, size=size))
         return files
 
+    def _all_tracked_media_paths(self) -> set:
+        """Every file path Radarr (and Sonarr, if enabled) actually
+        track right now — the signal used to tell a duplicate group's
+        real, tracked copy apart from a stray leftover, for both the
+        per-file rename-the-survivor step and the bulk-delete button."""
+        paths = set(self.radarr.get_all_movie_file_paths())
+        if self.cfg.tv_enabled:
+            paths |= self.sonarr.get_all_episode_file_paths()
+        return paths
+
     def on_scan_duplicates_now_pressed(self, event_name, data, kwargs):
         self.tick_scan_duplicates({})
 
@@ -747,6 +758,19 @@ class Yarr(hass.Hass):
         self.state_data.duplicate_groups = [
             [{"path": f.path, "size": f.size} for f in group] for group in groups]
         self.state_data.duplicate_scan_at = datetime.now(timezone.utc).isoformat()
+
+        try:
+            tracked_paths = self._all_tracked_media_paths()
+        except (RadarrError, SonarrError) as exc:
+            self._log_event(f"Could not compute bulk-deletable duplicates: {exc}", level="warn")
+            self.state_data.duplicate_deletable_count = None
+            self.state_data.duplicate_deletable_bytes = None
+        else:
+            deletable = [f for group in self.state_data.duplicate_groups
+                         for f in core_dupes.files_to_delete(group, tracked_paths)]
+            self.state_data.duplicate_deletable_count = len(deletable)
+            self.state_data.duplicate_deletable_bytes = sum(f["size"] for f in deletable)
+
         self._save_state()
 
         if groups:
@@ -755,6 +779,75 @@ class Yarr(hass.Hass):
                              f"(~{wasted_gb:.1f} GB) — review in the web UI.")
         else:
             self._log_event("Media scan: no duplicates found.")
+
+    def on_bulk_delete_duplicates_pressed(self, event_name, data, kwargs):
+        """Deletes every duplicate whose group has exactly one file
+        that matches Radarr/Sonarr's actually-tracked path, in one go —
+        the group is left alone if zero or more than one file in it
+        matches (core_dupes.files_to_delete's ambiguity rule), so this
+        never guesses which copy to keep."""
+        if not self.cfg.media_scan_enabled:
+            return
+        try:
+            tracked_paths = self._all_tracked_media_paths()
+        except (RadarrError, SonarrError) as exc:
+            self._log_event(f"Bulk duplicate delete aborted — could not fetch tracked files: {exc}",
+                             level="error")
+            return
+
+        to_delete_by_group = [
+            (group, core_dupes.files_to_delete(group, tracked_paths))
+            for group in self.state_data.duplicate_groups]
+        total_to_delete = sum(len(d) for _, d in to_delete_by_group)
+
+        if self.cfg.dry_run:
+            self._log_event(f"[dry_run] Would bulk-delete {total_to_delete} duplicate file(s).")
+            return
+
+        deleted = []
+        skipped_groups = 0
+        new_groups = []
+        for group, to_delete in to_delete_by_group:
+            if not to_delete:
+                skipped_groups += 1
+                new_groups.append(group)
+                continue
+            deleted_paths = set()
+            for f in to_delete:
+                try:
+                    os.remove(f["path"])
+                except OSError as exc:
+                    self._log_event(f"Could not delete {f['path']!r}: {exc}", level="error")
+                    continue
+                self._cleanup_empty_dirs(f["path"])
+                deleted.append(f)
+                deleted_paths.add(f["path"])
+            remaining = [f for f in group if f["path"] not in deleted_paths]
+            if len(remaining) > 1:
+                new_groups.append(remaining)
+
+        self.state_data.duplicate_groups = new_groups
+        self.state_data.duplicate_deletable_count = 0
+        self.state_data.duplicate_deletable_bytes = 0
+
+        freed_gb = sum(f["size"] for f in deleted) / 1_000_000_000
+        self._log_event(
+            f"Bulk duplicate cleanup: deleted {len(deleted)} file(s) (~{freed_gb:.1f} GB freed)"
+            + (f", skipped {skipped_groups} ambiguous group(s) for manual review" if skipped_groups else "")
+            + ".")
+
+        if deleted:
+            try:
+                self.radarr.rescan_library()
+            except RadarrError as exc:
+                self._log_event(f"Radarr rescan after bulk delete failed: {exc}", level="warn")
+            if self.cfg.tv_enabled:
+                try:
+                    self.sonarr.rescan_library()
+                except SonarrError as exc:
+                    self._log_event(f"Sonarr rescan after bulk delete failed: {exc}", level="warn")
+
+        self._save_state()
 
     def _cleanup_empty_dirs(self, deleted_path):
         """Walks upward from a just-deleted file's directory, removing
@@ -941,6 +1034,8 @@ class Yarr(hass.Hass):
                     group[0]["size"] * (len(group) - 1) for group in self.state_data.duplicate_groups
                     if group),
                 "duplicate_scan_at": self.state_data.duplicate_scan_at,
+                "duplicate_deletable_count": self.state_data.duplicate_deletable_count,
+                "duplicate_deletable_bytes": self.state_data.duplicate_deletable_bytes,
             })
         self.set_state("sensor.yarr_status",
                         state="Not Configured" if self.missing_secrets else "OK",

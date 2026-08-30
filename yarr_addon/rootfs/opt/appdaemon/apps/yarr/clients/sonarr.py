@@ -90,6 +90,13 @@ class SonarrClient:
         instead of waiting for its own periodic disk scan."""
         self._request("POST", "/command", {"name": "RefreshSeries"})
 
+    def get_all_episode_file_paths(self) -> set:
+        """Every episode file path Sonarr currently tracks — used to
+        tell a duplicate scan's tracked copy apart from a stray
+        leftover (bulk duplicate delete), without a per-file lookup."""
+        _, files = self._request("GET", "/episodefile")
+        return {f["path"] for f in (files or []) if f.get("path")}
+
     def find_series_id_by_file_path(self, path: str):
         """Looks up which series owns a given episode file path — used
         to rename the surviving copy after a duplicate delete, since
