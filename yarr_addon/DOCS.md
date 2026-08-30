@@ -255,23 +255,48 @@ entry disappears right away instead of waiting for Jellyfin's own next
 scheduled scan — the only write this add-on ever makes to Jellyfin;
 everything else is read-only.
 
-**Age safety net**: a folder or file only ever counts as junk once it
-hasn't been modified for `junk_min_age_hours` (default 1h). Without
-this, a folder SABnzbd is actively extracting into *right now* would
-look identical to one it abandoned — deleting it mid-extraction would
-actually destroy a download in progress. Anything too recent is simply
-left alone until the next scan.
+**Four gates, every one biased toward "leave it alone"**: something
+only ever gets called junk once it passes all four, and any doubt on
+any of them means it's excluded this scan (try again next time) rather
+than guessed at — the failure mode here is real, wanted data getting
+deleted, so every check defaults to caution:
 
-**Auto-delete vs. manual delete**: an empty (0-byte) junk item —
-SABnzbd created the folder or file but never wrote any real data into
-it before giving up — is deleted automatically on every scan, no
-button required, because there is no content it could possibly
-destroy. Anything with real bytes in it always needs an explicit
-delete: either its own per-item Delete button, or **Delete All Junk**
-(one click, one confirm showing the count) to clear every remaining
-item from the last scan in a single pass — no "only one tracked copy"
-ambiguity check like bulk duplicate delete, since a junk entry is
-unambiguously junk by definition once it's on this list at all.
+1. **Old enough** — hasn't been modified for `junk_min_age_hours`
+   (default 1h). Without this, a folder SABnzbd is actively extracting
+   into *right now* would look identical to one it abandoned. If a
+   file's age genuinely can't be determined (a read error mid-check),
+   it's treated as "just modified" — never as "definitely old enough."
+2. **Actually measurable** — if any file inside can't be sized (a
+   network hiccup mid-scan), the whole folder is skipped rather than
+   silently undercounting it as smaller (or emptier) than it really
+   is. This is what let a genuinely non-empty folder get treated as
+   safe to auto-delete in an earlier version — an inability to measure
+   something must never be mistaken for "there's nothing there."
+3. **Not something SABnzbd's own queue still considers active** — file
+   age alone can't tell a stalled job apart from one stuck on slow
+   par2 repair, or one you paused on purpose intending to resume. If
+   SABnzbd monitoring is configured, its live queue is checked
+   (loosely, by normalized name) before anything is ever called junk;
+   a name match there excludes it regardless of age.
+4. **No complete-looking video file inside** — a folder can finish
+   extracting and still sit under an `_UNPACK_` name if only the final
+   rename/import step got interrupted. If it contains a video file
+   (`.mkv`/`.mp4`/etc.) at or above 100MB, it's excluded entirely —
+   that's not leftover junk, it's unimported content that needs a
+   human to look at it, not a delete.
+
+**Auto-delete vs. manual delete**: an empty (0-byte) junk item that
+passes all four gates — SABnzbd created the folder or file but never
+wrote any real data into it before giving up — is deleted
+automatically on every scan, no button required, because there is no
+content it could possibly destroy. Anything with real bytes in it
+always needs an explicit delete: either its own per-item Delete
+button, or **Delete All Junk** (one click, one confirm that lists the
+actual item names, not just a count, so you can eyeball them first) to
+clear every remaining item from the last scan in a single pass — no
+"only one tracked copy" ambiguity check like bulk duplicate delete,
+since a junk entry is unambiguously junk by definition once it's
+passed all four gates above.
 
 ## Troubleshooting
 

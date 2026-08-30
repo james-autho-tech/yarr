@@ -279,6 +279,7 @@ button.small-delete:disabled:hover{color:var(--faint);border-color:var(--edge)}
 <script>
 let currentTab = 'movies';
 try { currentTab = localStorage.getItem('yarr_tab') || 'movies'; } catch (e) {}
+let lastJunkEntries = [];
 
 function selectTab(tab) {
   currentTab = tab;
@@ -492,6 +493,7 @@ async function refresh() {
   if (d.media_scan_enabled) {
     const groups = d.duplicate_groups || [];
     const junk = d.junk_entries || [];
+    lastJunkEntries = junk;
     dupesSection.innerHTML = `
       <div class="section-head"><span class="section-title">Duplicates</span>
         <span class="section-note">last scan ${d.duplicate_scan_at ? fmtDate(d.duplicate_scan_at) : 'never'}</span></div>
@@ -520,7 +522,7 @@ async function refresh() {
         <div class="stat"><div class="lbl">Space wasted</div><div class="val small">${fmtBytes(d.junk_bytes||0)}</div></div>
       </div>
       <div class="mode-line">Leftover SABnzbd extraction junk: an _UNPACK_/_FAILED_ folder left behind by a failed or interrupted unpack, or a stray archive piece that never got extracted — the usual cause of a bogus "UNPACK" entry showing up in Jellyfin. Empty (0-byte) junk is deleted automatically on every scan; anything listed below has real data in it and needs a button press. Deleting refreshes Jellyfin's library afterward.</div>
-      ${junk.length ? `<div style="margin:14px 0 0"><button class="ghost" onclick="runAction(this,'api/bulk-delete-junk',{},{confirmMsg:'Delete all ${junk.length} junk item(s) listed below? This cannot be undone.'})">Delete All Junk</button></div>` : ''}
+      ${junk.length ? `<div style="margin:14px 0 0"><button class="ghost" onclick="bulkDeleteJunk(this)">Delete All Junk</button></div>` : ''}
       ${junk.length ? `<table class="list" style="margin:14px 0"><thead><tr><th>Item</th><th>Size</th><th></th></tr></thead><tbody>
         ${junk.map(j => `<tr><td class="title-cell" title="${esc(j.path)}">${esc(baseName(j.path))}${j.is_dir ? ' <span class="section-note">(folder)</span>' : ''}</td><td class="year">${fmtBytes(j.size)}</td>
           <td><button class="small-delete" onclick="runAction(this,'api/delete-junk-entry',{path:${escAttr(JSON.stringify(j.path))}},{confirmMsg:${escAttr(JSON.stringify(j.is_dir ? 'Delete this entire folder and everything inside it? This cannot be undone.' : 'Delete this file from disk now? This cannot be undone.'))}})">Delete</button></td></tr>`).join('')}
@@ -545,6 +547,11 @@ function acceptTvSurprise(btn){ runAction(btn,'api/accept-surprise-tv'); }
 function denyTvSurprise(btn){ runAction(btn,'api/deny-surprise-tv'); }
 function deleteSurprise(id, btn){ runAction(btn,'api/delete-surprise',{id},{confirmMsg:'Delete this from Radarr now?'}); }
 function deleteTvSurprise(id, btn){ runAction(btn,'api/delete-surprise-tv',{id},{confirmMsg:'Delete this from Sonarr now?'}); }
+function bulkDeleteJunk(btn) {
+  const names = lastJunkEntries.map(j => baseName(j.path));
+  const msg = `Delete all ${lastJunkEntries.length} junk item(s)? This cannot be undone.\\n\\n` + names.join('\\n');
+  runAction(btn, 'api/bulk-delete-junk', {}, { confirmMsg: msg });
+}
 refresh();
 setInterval(refresh, 5000);
 </script>

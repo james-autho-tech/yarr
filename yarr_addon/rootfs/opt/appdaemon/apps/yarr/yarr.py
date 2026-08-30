@@ -731,36 +731,66 @@ class Yarr(hass.Hass):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _dir_size(path) -> int:
+    def _dir_contents(path):
+        """(total_bytes, [(name, size), ...]) for everything under this
+        directory, or None if any file couldn't be measured. A network
+        hiccup mid-walk must never silently look like "this folder is
+        empty" — an undercounted size was exactly the kind of false
+        signal that could make a real, wanted, multi-GB download look
+        safe to auto-delete as if it were 0 bytes. None means
+        couldn't-tell-try-again-later, never assume-it-was-zero. The
+        per-file listing feeds core_junk.contains_likely_video — a
+        folder that actually has a complete video sitting in it isn't
+        junk, however it's named."""
         total = 0
+        files = []
         for dirpath, _dirnames, filenames in os.walk(path):
             for name in filenames:
                 try:
-                    total += os.path.getsize(os.path.join(dirpath, name))
+                    size = os.path.getsize(os.path.join(dirpath, name))
                 except OSError:
-                    continue
-        return total
+                    return None
+                total += size
+                files.append((name, size))
+        return total, files
 
     @staticmethod
     def _latest_mtime_in_dir(path) -> float:
-        """Newest mtime of anything in this directory tree (falling
-        back to the directory's own mtime if it's empty) — used to
+        """Newest mtime of anything in this directory tree — used to
         tell a genuinely abandoned unpack folder apart from one
         SABnzbd is actively writing to right now, which would
-        otherwise look identical."""
+        otherwise look identical. Biased toward "this looks fresh" on
+        any read failure (returns right now, not the Unix epoch): an
+        inability to determine a folder's age must never be mistaken
+        for confirmation that it's old enough to be safe."""
         try:
             latest = os.path.getmtime(path)
         except OSError:
-            latest = 0.0
+            return time.time()
         for dirpath, _dirnames, filenames in os.walk(path):
             for name in filenames:
                 try:
                     latest = max(latest, os.path.getmtime(os.path.join(dirpath, name)))
                 except OSError:
-                    continue
+                    return time.time()
         return latest
 
-    def _walk_media_and_junk(self):
+    def _sabnzbd_active_names(self) -> set:
+        """Display names of everything currently in SABnzbd's own
+        queue (downloading, paused, or mid-repair/extraction) — the
+        one signal that actually knows whether a job is still active,
+        as opposed to guessing from file age alone. Empty set (never
+        raises) if SABnzbd isn't configured or is unreachable right
+        now, in which case age is the only signal available."""
+        if not self.cfg.sabnzbd_enabled:
+            return set()
+        try:
+            queue = self.sabnzbd.get_queue()
+        except SABnzbdError:
+            return set()
+        return {item["filename"] for item in queue["items"] if item.get("filename")}
+
+    def _walk_media_and_junk(self, active_job_names):
         """The actual filesystem I/O — deliberately kept out of
         core/dupes.py and core/junk.py so those stay pure/unit-testable.
         Single os.walk pass per root feeding both the duplicate scan
@@ -771,11 +801,23 @@ class Yarr(hass.Hass):
         and shouldn't take out the rest of the results). A directory
         matching core_junk's _UNPACK_/_FAILED_ naming is recorded whole
         and never descended into — everything inside it is being
-        deleted as one unit, not inspected file-by-file. Anything
-        matching a junk pattern but modified more recently than
-        junk_min_age_hours is treated as ordinary (still-active,
-        possibly) content instead — see _latest_mtime_in_dir's
-        docstring for why."""
+        deleted as one unit, not inspected file-by-file.
+
+        Four independent gates before anything is ever called junk —
+        all four defaulting toward "leave it alone" on any doubt, since
+        the failure mode here is real, wanted data getting deleted:
+        (1) old enough (_latest_mtime_in_dir, biased toward "looks
+        fresh" on a read error), (2) its contents could actually be
+        measured (_dir_contents returning None means "unknown," not
+        "empty"), (3) it doesn't match anything SABnzbd's own live
+        queue still considers active (active_job_names) — file age
+        alone can't tell a stalled job apart from one stuck on slow
+        par2 repair or one you paused on purpose, which is exactly what
+        let a real download get swept up as "junk" once — and (4) it
+        doesn't actually contain a complete-looking video file, since
+        something can finish extracting and still sit under an
+        _UNPACK_ name if only the final rename/import step got
+        interrupted."""
         age_cutoff = time.time() - self.cfg.junk_min_age_hours * 3600
         media_files = []
         junk_entries = []
@@ -784,9 +826,13 @@ class Yarr(hass.Hass):
                 keep_dirs = []
                 for d in dirnames:
                     full_path = os.path.join(dirpath, d)
-                    if core_junk.is_junk_dir_name(d) and self._latest_mtime_in_dir(full_path) <= age_cutoff:
-                        junk_entries.append(
-                            {"path": full_path, "size": self._dir_size(full_path), "is_dir": True})
+                    is_candidate = (
+                        core_junk.is_junk_dir_name(d)
+                        and self._latest_mtime_in_dir(full_path) <= age_cutoff
+                        and not core_junk.matches_active_job(d, active_job_names))
+                    contents = self._dir_contents(full_path) if is_candidate else None
+                    if is_candidate and contents is not None and not core_junk.contains_likely_video(contents[1]):
+                        junk_entries.append({"path": full_path, "size": contents[0], "is_dir": True})
                     else:
                         keep_dirs.append(d)
                 dirnames[:] = keep_dirs
@@ -801,8 +847,8 @@ class Yarr(hass.Hass):
                         try:
                             mtime = os.path.getmtime(full_path)
                         except OSError:
-                            mtime = 0.0
-                        if mtime <= age_cutoff:
+                            continue
+                        if mtime <= age_cutoff and not core_junk.matches_active_job(name, active_job_names):
                             junk_entries.append({"path": full_path, "size": size, "is_dir": False})
                         continue
                     media_files.append(core_dupes.MediaFile(path=full_path, size=size))
@@ -830,8 +876,9 @@ class Yarr(hass.Hass):
     def tick_scan_duplicates(self, kwargs):
         if not self.cfg.media_scan_enabled:
             return
+        active_job_names = self._sabnzbd_active_names()
         try:
-            files, junk_entries = self._walk_media_and_junk()
+            files, junk_entries = self._walk_media_and_junk(active_job_names)
         except OSError as exc:
             self._log_event(f"Media duplicate scan failed: {exc}", level="error")
             self.publish_status({})

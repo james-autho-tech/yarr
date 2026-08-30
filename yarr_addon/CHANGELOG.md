@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.13.1
+
+- **Junk detection got three real safety gates, after a genuine
+  incident**: a user's deliberate "Delete All Junk" click removed a
+  folder that turned out to still be needed, because file age alone
+  can't tell a stalled-but-abandoned unpack apart from one still
+  legitimately in progress. Now, before anything is ever called junk:
+  it must not match anything in SABnzbd's own live queue (downloading,
+  paused, or mid-repair — checked by normalized name if SABnzbd
+  monitoring is configured); it must not contain a complete-looking
+  video file (≥100MB `.mkv`/`.mp4`/etc. — something can finish
+  extracting and still sit under an `_UNPACK_` name if only the final
+  import step got interrupted); and its size must have been reliably
+  measurable at all (a network hiccup mid-scan previously could
+  silently undercount a real folder as smaller than it is — now any
+  read failure excludes it from this scan entirely rather than
+  guessing zero).
+- **Delete All Junk's confirm dialog now lists the actual item names**,
+  not just a count — so there's a real chance to notice something
+  that shouldn't be there before confirming, not just a number.
+
 ## 0.13.0
 
 - **Empty junk is now deleted automatically.** A leftover
