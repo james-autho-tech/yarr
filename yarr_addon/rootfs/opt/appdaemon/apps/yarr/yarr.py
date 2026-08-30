@@ -251,7 +251,12 @@ class Yarr(hass.Hass):
             self._save_state()
 
     def on_surprise_now_pressed(self, event_name, data, kwargs):
+        # publish_status normally only runs on its own 60s tick — a
+        # button press republishes immediately afterward so the web UI
+        # (polling every 5s) doesn't look like it did nothing for up to
+        # a minute.
         self._run_surprise_pick()
+        self.publish_status({})
 
     def tick_surprise_check(self, kwargs):
         if not self._enabled() or not self.cfg.surprise_enabled:
@@ -352,6 +357,7 @@ class Yarr(hass.Hass):
         self.state_data = core_state.record_genre_feedback(self.state_data, pending.genres, accepted=True)
         self.state_data = core_state.clear_pending_surprise(self.state_data)
         self._add_surprise_movie(pending, now)
+        self.publish_status({})
 
     def on_deny_surprise(self, event_name, data, kwargs):
         pending = self.state_data.pending_surprise
@@ -361,6 +367,7 @@ class Yarr(hass.Hass):
         self.state_data = core_state.clear_pending_surprise(self.state_data)
         self._log_event(f"Denied surprise: {pending.title!r} "
                          f"(genres: {', '.join(pending.genres) or 'none'}).")
+        self.publish_status({})
 
     def on_delete_surprise_now(self, event_name, data, kwargs):
         """Immediate manual delete of an already-added surprise —
@@ -386,6 +393,7 @@ class Yarr(hass.Hass):
                                  level="warn")
         self.state_data = core_state.confirm_deleted(self.state_data, int(tmdb_id))
         self._log_event(f"Deleted {film.title!r} — removed manually.")
+        self.publish_status({})
 
     # ------------------------------------------------------------------
     # TV DISCOVERY / SURPRISE (opt-in — only wired up when cfg.tv_enabled)
@@ -437,6 +445,7 @@ class Yarr(hass.Hass):
 
     def on_surprise_tv_now_pressed(self, event_name, data, kwargs):
         self._run_tv_surprise_pick()
+        self.publish_status({})
 
     def tick_tv_surprise_check(self, kwargs):
         if not self._enabled() or not self.cfg.tv_surprise_enabled:
@@ -528,6 +537,7 @@ class Yarr(hass.Hass):
         self.state_data = core_state.record_genre_feedback(self.state_data, pending.genres, accepted=True)
         self.state_data = core_state.clear_pending_tv_surprise(self.state_data)
         self._add_surprise_show(pending, now)
+        self.publish_status({})
 
     def on_deny_tv_surprise(self, event_name, data, kwargs):
         pending = self.state_data.pending_tv_surprise
@@ -537,6 +547,7 @@ class Yarr(hass.Hass):
         self.state_data = core_state.clear_pending_tv_surprise(self.state_data)
         self._log_event(f"Denied TV surprise: {pending.title!r} "
                          f"(genres: {', '.join(pending.genres) or 'none'}).")
+        self.publish_status({})
 
     def on_delete_tv_surprise_now(self, event_name, data, kwargs):
         tvdb_id = (data or {}).get("tvdb_id")
@@ -555,6 +566,7 @@ class Yarr(hass.Hass):
                                  level="warn")
         self.state_data = core_state.confirm_show_deleted(self.state_data, int(tvdb_id))
         self._log_event(f"Deleted {show.title!r} — removed manually.")
+        self.publish_status({})
 
     # ------------------------------------------------------------------
     # JELLYFIN WEBHOOK (movie PlaybackStop + episode PlaybackStop) / DELETE GUARD
@@ -751,6 +763,7 @@ class Yarr(hass.Hass):
             files = self._walk_media_files()
         except OSError as exc:
             self._log_event(f"Media duplicate scan failed: {exc}", level="error")
+            self.publish_status({})
             return
 
         min_size_bytes = int(self.cfg.media_scan_min_size_mb * 1_000_000)
@@ -779,6 +792,7 @@ class Yarr(hass.Hass):
                              f"(~{wasted_gb:.1f} GB) — review in the web UI.")
         else:
             self._log_event("Media scan: no duplicates found.")
+        self.publish_status({})
 
     def on_bulk_delete_duplicates_pressed(self, event_name, data, kwargs):
         """Deletes every duplicate whose group has exactly one file
@@ -793,6 +807,7 @@ class Yarr(hass.Hass):
         except (RadarrError, SonarrError) as exc:
             self._log_event(f"Bulk duplicate delete aborted — could not fetch tracked files: {exc}",
                              level="error")
+            self.publish_status({})
             return
 
         to_delete_by_group = [
@@ -802,6 +817,7 @@ class Yarr(hass.Hass):
 
         if self.cfg.dry_run:
             self._log_event(f"[dry_run] Would bulk-delete {total_to_delete} duplicate file(s).")
+            self.publish_status({})
             return
 
         deleted = []
@@ -848,6 +864,7 @@ class Yarr(hass.Hass):
                     self._log_event(f"Sonarr rescan after bulk delete failed: {exc}", level="warn")
 
         self._save_state()
+        self.publish_status({})
 
     def _cleanup_empty_dirs(self, deleted_path):
         """Walks upward from a just-deleted file's directory, removing
@@ -907,14 +924,17 @@ class Yarr(hass.Hass):
         if path not in known_paths:
             self._log_event(f"Refused to delete {path!r} — not part of the last duplicate scan.",
                              level="error")
+            self.publish_status({})
             return
         if self.cfg.dry_run:
             self._log_event(f"[dry_run] Would delete duplicate file: {path!r}.")
+            self.publish_status({})
             return
         try:
             os.remove(path)
         except OSError as exc:
             self._log_event(f"Could not delete {path!r}: {exc}", level="error")
+            self.publish_status({})
             return
         self._cleanup_empty_dirs(path)
 
@@ -941,6 +961,8 @@ class Yarr(hass.Hass):
 
         for survivor in survivor_paths:
             self._rename_surviving_copy(survivor)
+
+        self.publish_status({})
 
     # ------------------------------------------------------------------
     # SABNZBD MONITORING (read-only)

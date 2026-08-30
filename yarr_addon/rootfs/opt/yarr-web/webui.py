@@ -237,6 +237,20 @@ nav.tabs{display:flex;gap:4px;padding:0 24px;border-bottom:2px solid var(--ink);
 .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
 .tab-page{display:none}
 .tab-page.active{display:block}
+
+button:disabled{opacity:.55;cursor:default;filter:none}
+button.ghost:disabled:hover{background:transparent;color:var(--ink)}
+button.small-delete:disabled:hover{color:var(--faint);border-color:var(--edge)}
+
+.toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,16px);
+       background:var(--panel);color:var(--ink);border:2px solid var(--edge);
+       border-radius:8px;padding:12px 20px;font-size:13px;font-weight:700;
+       max-width:min(560px,90vw);box-shadow:0 8px 24px rgba(0,0,0,.4);
+       opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:50}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.toast.info{border-color:var(--accent)}
+.toast.warn{border-color:var(--warn);color:var(--warn)}
+.toast.error{border-color:var(--err);color:var(--err)}
 </style></head><body>
 <header>
   <div class="wordmark">y<span class="hi">Arr</span></div>
@@ -257,6 +271,7 @@ nav.tabs{display:flex;gap:4px;padding:0 24px;border-bottom:2px solid var(--ink);
   <section id="dupes-section" class="tab-page" data-tab="dupes"></section>
   <section id="log-section" class="tab-page" data-tab="log"></section>
 </main>
+<div id="toast" class="toast"></div>
 <script>
 let currentTab = 'movies';
 try { currentTab = localStorage.getItem('yarr_tab') || 'movies'; } catch (e) {}
@@ -271,6 +286,52 @@ function selectTab(tab) {
 async function post(path, body) {
   const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
   return r.json();
+}
+
+let toastTimer = null;
+function showToast(msg, level) {
+  const box = document.getElementById('toast');
+  box.textContent = msg;
+  box.className = 'toast show ' + (level || 'info');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { box.className = 'toast'; }, 6000);
+}
+
+async function fetchStatus() { return (await fetch('api/status')).json(); }
+
+// Every action here fires an HA event and returns immediately — the
+// actual work happens a moment later inside yarr.py. Rather than
+// leaving a click looking like it did nothing, this shows the button
+// as working, then polls api/status for a new Log entry (yarr.py
+// republishes its status right after every action completes) so the
+// toast reflects the real outcome instead of guessing.
+async function runAction(btn, path, body, { confirmMsg, watchLog = true } = {}) {
+  if (confirmMsg && !confirm(confirmMsg)) return;
+  const originalText = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = 'Working…'; }
+  try {
+    const before = watchLog ? await fetchStatus() : null;
+    const beforeTs = before && before.log && before.log[0] ? before.log[0].ts : null;
+    await post(path, body);
+    if (watchLog) {
+      let found = null;
+      for (let i = 0; i < 8 && !found; i++) {
+        await new Promise(r => setTimeout(r, 1200));
+        const s = await fetchStatus();
+        const last = s.log && s.log[0];
+        if (last && last.ts !== beforeTs) found = last;
+      }
+      showToast(found ? found.message : 'Requested — check the Log tab if nothing changes.',
+                found ? (found.level || 'info') : 'warn');
+    } else {
+      showToast('Done.', 'info');
+    }
+  } catch (e) {
+    showToast('Request failed: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+    refresh();
+  }
 }
 function esc(s){return String(s==null?'':s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 function escAttr(s){return esc(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
@@ -314,7 +375,7 @@ function surpriseTable(rows, deleteFn) {
   return `<table class="list"><thead><tr><th>Title</th><th>Year</th><th>Status</th><th></th><th></th></tr></thead><tbody>
     ${rows.map(r => `<tr><td class="title-cell">${esc(r.title)}</td><td class="year">${r.year||'—'}</td><td>${statusPill(r.status)}</td>
       <td class="countdown">${r.status==='deleting_soon' ? timeUntil(r.delete_at) : ''}</td>
-      <td><button class="small-delete" onclick="${deleteFn}(${JSON.stringify(r.id)})">Delete</button></td></tr>`).join('')}
+      <td><button class="small-delete" onclick="${deleteFn}(${JSON.stringify(r.id)}, this)">Delete</button></td></tr>`).join('')}
   </tbody></table>`;
 }
 
@@ -325,8 +386,8 @@ function proposalCard(pending, acceptFn, denyFn) {
     <div class="ptitle">${esc(pending.title)} ${pending.year ? '('+pending.year+')' : ''}</div>
     <div class="pmeta">Rating ${(pending.rating||0).toFixed(1)} · ${(pending.genres||[]).map(esc).join(', ') || 'no genres listed'}</div>
     <div class="pactions">
-      <button onclick="${acceptFn}()">Accept</button>
-      <button class="deny" onclick="${denyFn}()">Deny</button>
+      <button onclick="${acceptFn}(this)">Accept</button>
+      <button class="deny" onclick="${denyFn}(this)">Deny</button>
     </div>
   </div>`;
 }
@@ -356,11 +417,11 @@ async function refresh() {
     ${d.denied_genres && d.denied_genres.length ? `<div class="mode-line" style="margin-top:8px">Denied enough times to auto-suppress</div>${chipsRow(d.denied_genres, 'off')}` : ''}
     ${proposalCard(d.pending_surprise, 'acceptSurprise', 'denySurprise')}
     <div style="margin:14px 0 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-      <button onclick="surpriseNow()" ${d.pending_surprise ? 'disabled' : ''}>Surprise Me Now</button>
+      <button onclick="runAction(this,'api/surprise-now')" ${d.pending_surprise ? 'disabled' : ''}>Surprise Me Now</button>
       ${(d.surprises||[]).some(s => s.status === 'deleting_soon') ? (
         d.keep_surprise
           ? '<span class="keep-note">Pending deletion will be kept.</span>'
-          : '<button class="ghost" onclick="keepSurprise()">Keep It</button>'
+          : '<button class="ghost" onclick="runAction(this,\'api/keep-surprise\',{},{watchLog:false})">Keep It</button>'
       ) : ''}
     </div>
     <div class="section-note" style="margin-bottom:6px">Recently suggested</div>
@@ -387,11 +448,11 @@ async function refresh() {
       ${chipsRow(d.effective_tv_genres)}
       ${proposalCard(d.pending_tv_surprise, 'acceptTvSurprise', 'denyTvSurprise')}
       <div style="margin:14px 0 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-        <button onclick="surpriseTvNow()" ${d.pending_tv_surprise ? 'disabled' : ''}>Surprise Me Now (TV)</button>
+        <button onclick="runAction(this,'api/surprise-tv-now')" ${d.pending_tv_surprise ? 'disabled' : ''}>Surprise Me Now (TV)</button>
         ${(d.surprise_shows||[]).some(s => s.status === 'deleting_soon') ? (
           d.keep_surprise_tv
             ? '<span class="keep-note">Pending deletion will be kept.</span>'
-            : '<button class="ghost" onclick="keepSurpriseTv()">Keep It</button>'
+            : '<button class="ghost" onclick="runAction(this,\'api/keep-surprise-tv\',{},{watchLog:false})">Keep It</button>'
         ) : ''}
       </div>
       <div class="section-note" style="margin-bottom:6px">Recently suggested</div>
@@ -436,13 +497,14 @@ async function refresh() {
       </div>
       <div class="mode-line">Same file size is the signal — review before deleting. Deleting here removes the file from disk immediately and tells Radarr/Sonarr to rescan. "Safe to bulk-delete" only counts groups where exactly one file matches Radarr/Sonarr's tracked copy, as of the last scan.</div>
       <div style="margin:14px 0 18px;display:flex;gap:10px;flex-wrap:wrap">
-        <button onclick="scanDuplicatesNow()">Scan Now</button>
-        <button class="ghost" onclick="bulkDeleteDuplicates(${d.duplicate_deletable_count||0})" ${!d.duplicate_deletable_count ? 'disabled' : ''}>Delete All Inferior Duplicates</button>
+        <button onclick="runAction(this,'api/scan-duplicates-now')">Scan Now</button>
+        <button class="ghost" onclick="runAction(this,'api/bulk-delete-duplicates',{},{confirmMsg:'Delete ${d.duplicate_deletable_count||0} duplicate file(s) whose group has a single Radarr/Sonarr-tracked copy? Ambiguous groups are skipped. This cannot be undone.'})" ${!d.duplicate_deletable_count ? 'disabled' : ''}>Delete All Inferior Duplicates</button>
       </div>
+      ${d.duplicate_deletable_count==null ? '<div class="mode-line" style="margin-top:-8px">Bulk-delete count is unknown until the next successful scan (Radarr/Sonarr may have been unreachable during the last one) — press Scan Now.</div>' : ''}
       ${groups.length ? groups.map(g => `
         <table class="list" style="margin-bottom:14px"><thead><tr><th>File</th><th>Size</th><th></th></tr></thead><tbody>
           ${g.map(f => `<tr><td class="title-cell" title="${esc(f.path)}">${esc(baseName(f.path))}</td><td class="year">${fmtBytes(f.size)}</td>
-            <td><button class="small-delete" onclick="deleteDuplicateFile(${escAttr(JSON.stringify(f.path))})">Delete</button></td></tr>`).join('')}
+            <td><button class="small-delete" onclick="runAction(this,'api/delete-duplicate-file',{path:${escAttr(JSON.stringify(f.path))}},{confirmMsg:'Delete this file from disk now? This cannot be undone.'})">Delete</button></td></tr>`).join('')}
         </tbody></table>
       `).join('') : '<div class="empty-row">No duplicate groups found.</div>'}
     `;
@@ -459,19 +521,12 @@ async function refresh() {
 
   selectTab(currentTab);
 }
-async function surpriseNow(){ await post('api/surprise-now'); refresh(); }
-async function surpriseTvNow(){ await post('api/surprise-tv-now'); refresh(); }
-async function keepSurprise(){ await post('api/keep-surprise'); refresh(); }
-async function keepSurpriseTv(){ await post('api/keep-surprise-tv'); refresh(); }
-async function acceptSurprise(){ await post('api/accept-surprise'); refresh(); }
-async function denySurprise(){ await post('api/deny-surprise'); refresh(); }
-async function acceptTvSurprise(){ await post('api/accept-surprise-tv'); refresh(); }
-async function denyTvSurprise(){ await post('api/deny-surprise-tv'); refresh(); }
-async function deleteSurprise(id){ if(!confirm('Delete this from Radarr now?')) return; await post('api/delete-surprise', {id}); refresh(); }
-async function deleteTvSurprise(id){ if(!confirm('Delete this from Sonarr now?')) return; await post('api/delete-surprise-tv', {id}); refresh(); }
-async function scanDuplicatesNow(){ await post('api/scan-duplicates-now'); refresh(); }
-async function deleteDuplicateFile(path){ if(!confirm('Delete this file from disk now? This cannot be undone.')) return; await post('api/delete-duplicate-file', {path}); refresh(); }
-async function bulkDeleteDuplicates(count){ if(!confirm(`Delete ${count} duplicate file(s) whose group has a single Radarr/Sonarr-tracked copy? Ambiguous groups are skipped. This cannot be undone.`)) return; await post('api/bulk-delete-duplicates'); refresh(); }
+function acceptSurprise(btn){ runAction(btn,'api/accept-surprise'); }
+function denySurprise(btn){ runAction(btn,'api/deny-surprise'); }
+function acceptTvSurprise(btn){ runAction(btn,'api/accept-surprise-tv'); }
+function denyTvSurprise(btn){ runAction(btn,'api/deny-surprise-tv'); }
+function deleteSurprise(id, btn){ runAction(btn,'api/delete-surprise',{id},{confirmMsg:'Delete this from Radarr now?'}); }
+function deleteTvSurprise(id, btn){ runAction(btn,'api/delete-surprise-tv',{id},{confirmMsg:'Delete this from Sonarr now?'}); }
 refresh();
 setInterval(refresh, 5000);
 </script>

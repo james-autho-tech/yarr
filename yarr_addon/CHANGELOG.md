@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.11.0
+
+- **Every button now gives real feedback.** Root cause of "I pressed
+  it and nothing happened": the status sensor only republished on its
+  own fixed 60-second tick, so a button that worked instantly could
+  look dead in the web UI for up to a minute. Every action handler
+  (accept/deny, all four delete flows, scan now, bulk delete) now
+  forces an immediate republish right after it finishes.
+- On the client side, every action button shows "Working…" while its
+  request is in flight, then a toast pops up with the actual outcome
+  (pulled from the new Log entry the action just produced) instead of
+  refreshing silently. A failed request shows an error toast instead
+  of failing invisibly.
+- If you clicked **Delete All Inferior Duplicates** and it looked
+  disabled/inert: it only enables once a scan has computed a non-null
+  "safe to bulk-delete" count, which requires Radarr (and Sonarr, if
+  TV is enabled) to have been reachable *during that scan* — the
+  0.10.1 Sonarr fix only takes effect starting with your next Scan Now
+  or scheduled scan, not retroactively on an old one. The Duplicates
+  tab now says so explicitly when the count is unknown.
+
 ## 0.10.1
 
 - Fixed a real install error: Sonarr's `/episodefile` endpoint rejects
