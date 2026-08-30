@@ -30,9 +30,15 @@ monitoring — bundling its own AppDaemon runtime.
 - **SABnzbd monitoring (optional)**: read-only queue status (speed,
   ETA, active downloads) as an HA sensor and a web UI card — yArr never
   queues, pauses, or cancels anything in SABnzbd itself.
+- **Duplicate media scan (optional)**: scans your NAS (via HA's own
+  `/media` share) for files sharing an identical size — a strong,
+  cheap signal for duplicate video files — and lists candidate groups
+  in the web UI. Report-only: yArr never deletes, moves, or renames
+  anything it finds, you review and act on it yourself.
 
-TV/Sonarr and SABnzbd are both entirely opt-in — leave their
-Configuration-tab fields blank to run movies-only with no monitoring.
+TV/Sonarr, SABnzbd, and the duplicate scan are all entirely opt-in —
+leave their Configuration-tab fields / apps.yaml paths blank to run
+movies-only with no monitoring or scanning.
 
 ## Install
 

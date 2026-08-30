@@ -112,6 +112,12 @@ def build_status():
         "sabnzbd_paused": sab_attrs.get("paused", False),
         "sabnzbd_items": sab_attrs.get("items", []),
 
+        "media_scan_enabled": attrs.get("media_scan_enabled", False),
+        "duplicate_groups": attrs.get("duplicate_groups", []),
+        "duplicate_group_count": attrs.get("duplicate_group_count", 0),
+        "duplicate_wasted_bytes": attrs.get("duplicate_wasted_bytes", 0),
+        "duplicate_scan_at": attrs.get("duplicate_scan_at"),
+
         "log": attrs.get("log", []),
     }
 
@@ -238,6 +244,7 @@ nav.tabs{display:flex;gap:4px;padding:0 24px;border-bottom:2px solid var(--ink);
   <button class="tab-btn" data-tab="movies" onclick="selectTab('movies')">Movies</button>
   <button class="tab-btn" data-tab="tv" id="nav-tv" style="display:none" onclick="selectTab('tv')">TV</button>
   <button class="tab-btn" data-tab="sabnzbd" id="nav-sabnzbd" style="display:none" onclick="selectTab('sabnzbd')">SABnzbd</button>
+  <button class="tab-btn" data-tab="dupes" id="nav-dupes" style="display:none" onclick="selectTab('dupes')">Duplicates</button>
   <button class="tab-btn" data-tab="log" onclick="selectTab('log')">Log</button>
 </nav>
 <main>
@@ -245,6 +252,7 @@ nav.tabs{display:flex;gap:4px;padding:0 24px;border-bottom:2px solid var(--ink);
   <section id="movies-section" class="tab-page" data-tab="movies"></section>
   <section id="tv-section" class="tab-page" data-tab="tv"></section>
   <section id="sabnzbd-section" class="tab-page" data-tab="sabnzbd"></section>
+  <section id="dupes-section" class="tab-page" data-tab="dupes"></section>
   <section id="log-section" class="tab-page" data-tab="log"></section>
 </main>
 <script>
@@ -273,6 +281,14 @@ function timeUntil(iso){
   if (h < 48) return h + 'h from now';
   return Math.round(h/24) + 'd from now';
 }
+function fmtBytes(n){
+  if (!n) return '0 B';
+  const units = ['B','KB','MB','GB','TB'];
+  let i = 0;
+  while (n >= 1024 && i < units.length-1) { n /= 1024; i++; }
+  return n.toFixed(1) + ' ' + units[i];
+}
+function baseName(p){ const parts = String(p||'').split('/'); return parts[parts.length-1] || p; }
 function chipsRow(list, cls) {
   if (!list || !list.length) return '<span class="section-note">none set</span>';
   return `<div class="chips">${list.map(g=>`<span class="chip ${cls||''}">${esc(g)}</span>`).join('')}</div>`;
@@ -402,6 +418,28 @@ async function refresh() {
     `;
   }
 
+  document.getElementById('nav-dupes').style.display = d.media_scan_enabled ? '' : 'none';
+  if (!d.media_scan_enabled && currentTab === 'dupes') currentTab = 'movies';
+  const dupesSection = document.getElementById('dupes-section');
+  if (d.media_scan_enabled) {
+    const groups = d.duplicate_groups || [];
+    dupesSection.innerHTML = `
+      <div class="section-head"><span class="section-title">Duplicates</span>
+        <span class="section-note">last scan ${d.duplicate_scan_at ? fmtDate(d.duplicate_scan_at) : 'never'}</span></div>
+      <div class="stat-row">
+        <div class="stat"><div class="lbl">Groups found</div><div class="val">${d.duplicate_group_count||0}</div></div>
+        <div class="stat"><div class="lbl">Space wasted</div><div class="val small">${fmtBytes(d.duplicate_wasted_bytes||0)}</div></div>
+      </div>
+      <div class="mode-line">Report-only — yArr never deletes any of these for you. Same file size is the signal; review before removing anything yourself.</div>
+      <div style="margin:14px 0 18px"><button onclick="scanDuplicatesNow()">Scan Now</button></div>
+      ${groups.length ? groups.map(g => `
+        <table class="list" style="margin-bottom:14px"><thead><tr><th>File</th><th>Size</th></tr></thead><tbody>
+          ${g.map(f => `<tr><td class="title-cell" title="${esc(f.path)}">${esc(baseName(f.path))}</td><td class="year">${fmtBytes(f.size)}</td></tr>`).join('')}
+        </tbody></table>
+      `).join('') : '<div class="empty-row">No duplicate groups found.</div>'}
+    `;
+  }
+
   const log = d.log || [];
   document.getElementById('log-section').innerHTML = `
     <div class="section-head"><span class="section-title">Log</span>
@@ -423,6 +461,7 @@ async function acceptTvSurprise(){ await post('api/accept-surprise-tv'); refresh
 async function denyTvSurprise(){ await post('api/deny-surprise-tv'); refresh(); }
 async function deleteSurprise(id){ if(!confirm('Delete this from Radarr now?')) return; await post('api/delete-surprise', {id}); refresh(); }
 async function deleteTvSurprise(id){ if(!confirm('Delete this from Sonarr now?')) return; await post('api/delete-surprise-tv', {id}); refresh(); }
+async function scanDuplicatesNow(){ await post('api/scan-duplicates-now'); refresh(); }
 refresh();
 setInterval(refresh, 5000);
 </script>
@@ -481,6 +520,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             elif path.endswith("/api/delete-surprise-tv"):
                 tvdb_id = self._read_json_body().get("id")
                 ha_fire_event("yarr_delete_tv_surprise_now", {"tvdb_id": tvdb_id})
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/scan-duplicates-now"):
+                ha_fire_event("yarr_scan_duplicates_now")
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")

@@ -29,6 +29,25 @@ def test_tmdb_pages_default_and_parsed():
     assert cfg.tmdb_pages == 5
 
 
+def test_media_scan_disabled_by_default():
+    cfg = build_config({}, {})
+    assert cfg.media_scan_paths == []
+    assert cfg.media_scan_enabled is False
+    assert cfg.media_scan_min_size_mb == 50.0
+    assert cfg.media_scan_interval_hours == 24.0
+
+
+def test_media_scan_enabled_when_paths_set():
+    cfg = build_config({"media_scan_paths": ["/media/movies", "/media/tv"]}, {})
+    assert cfg.media_scan_enabled is True
+    assert cfg.media_scan_paths == ["/media/movies", "/media/tv"]
+
+
+def test_media_scan_paths_must_be_a_list():
+    with pytest.raises(ConfigError):
+        build_config({"media_scan_paths": "/media/movies"}, {})
+
+
 def test_merges_behaviour_and_secrets():
     cfg = build_config(
         {"genres": ["Sci-Fi", "Comedy"], "min_rating": 8.0},

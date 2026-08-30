@@ -123,6 +123,13 @@ class YarrState:
     denied_genre_counts: dict = field(default_factory=dict)
     accepted_genre_counts: dict = field(default_factory=dict)
 
+    # Last duplicate-media scan's results (see core/dupes.py) — a plain
+    # list of groups, each a list of {"path", "size"} dicts. Report-only,
+    # never acted on automatically; just carried across restarts so the
+    # web UI has something to show before the next scan completes.
+    duplicate_groups: list = field(default_factory=list)
+    duplicate_scan_at: str = None
+
 
 def _film_to_dict(film):
     return asdict(film)
@@ -178,6 +185,8 @@ def load(path: str) -> YarrState:
                              if raw.get("pending_tv_surprise") else None),
         denied_genre_counts=dict(raw.get("denied_genre_counts", {})),
         accepted_genre_counts=dict(raw.get("accepted_genre_counts", {})),
+        duplicate_groups=list(raw.get("duplicate_groups", [])),
+        duplicate_scan_at=raw.get("duplicate_scan_at"),
     )
 
 
@@ -201,6 +210,8 @@ def save(state: YarrState, path: str) -> None:
                                 if state.pending_tv_surprise else None),
         "denied_genre_counts": state.denied_genre_counts,
         "accepted_genre_counts": state.accepted_genre_counts,
+        "duplicate_groups": state.duplicate_groups,
+        "duplicate_scan_at": state.duplicate_scan_at,
     }
     try:
         with open(path, "w") as f:

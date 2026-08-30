@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.0
+
+- Added an optional **duplicate media scan**: scans NAS paths (via
+  HA's own `/media` share — needs Settings → System → Storage → Add
+  Network Storage set up first, see DOCS.md) for files sharing an
+  identical size, a strong and cheap signal for duplicate video files
+  without hashing an entire library. Report-only — yArr never deletes,
+  moves, or renames anything it finds, only lists candidate groups in
+  a new Duplicates tab in the web UI (with total wasted space and a
+  Scan Now button). Off by default; enable via `media_scan_paths` in
+  `apps.yaml`.
+
 ## 0.7.1
 
 - Added `tick_reconcile_surprises` (every 30 min): cross-checks tracked

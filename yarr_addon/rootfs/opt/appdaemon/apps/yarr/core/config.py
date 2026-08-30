@@ -91,6 +91,15 @@ class YarrConfig:
     tmdb_pages: int = 3
     dry_run: bool = False
 
+    # Duplicate-media scan — entirely opt-in via media_scan_paths being
+    # non-empty (needs the `media` map in config.yaml, i.e. HA's own
+    # /media share configured to point at wherever your library lives —
+    # see DOCS.md). Report-only: yArr never deletes anything it finds
+    # here, only lists candidate groups for you to review.
+    media_scan_paths: list = field(default_factory=list)
+    media_scan_min_size_mb: float = 50.0
+    media_scan_interval_hours: float = 24.0
+
     # --- addon_secrets.json (config.yaml options — never in apps.yaml) ---
     radarr_url: str = ""
     radarr_api_key: str = ""
@@ -111,6 +120,10 @@ class YarrConfig:
     def sabnzbd_enabled(self) -> bool:
         return bool(self.sabnzbd_url and self.sabnzbd_api_key)
 
+    @property
+    def media_scan_enabled(self) -> bool:
+        return bool(self.media_scan_paths)
+
 
 def _as_genre_list(a: dict, key: str) -> list:
     val = a.get(key)
@@ -119,6 +132,15 @@ def _as_genre_list(a: dict, key: str) -> list:
     if not isinstance(val, list):
         raise ConfigError(f"apps.yaml {key!r} must be a list, got {type(val).__name__}")
     return [str(g).lower() for g in val]
+
+
+def _as_path_list(a: dict, key: str) -> list:
+    val = a.get(key)
+    if val is None:
+        return []
+    if not isinstance(val, list):
+        raise ConfigError(f"apps.yaml {key!r} must be a list, got {type(val).__name__}")
+    return [str(p) for p in val]
 
 
 def build_config(apps_yaml_dict: dict, secrets_dict: dict) -> YarrConfig:
@@ -130,6 +152,7 @@ def build_config(apps_yaml_dict: dict, secrets_dict: dict) -> YarrConfig:
     tv_genres = _as_genre_list(a, "tv_genres") or []
     tv_surprise_genres = _as_genre_list(a, "tv_surprise_genres")
     excluded_genres = _as_genre_list(a, "excluded_genres") or []
+    media_scan_paths = _as_path_list(a, "media_scan_paths")
 
     return YarrConfig(
         genres=genres,
@@ -170,6 +193,10 @@ def build_config(apps_yaml_dict: dict, secrets_dict: dict) -> YarrConfig:
         excluded_genres=excluded_genres,
         tmdb_pages=int(a.get("tmdb_pages", 3)),
         dry_run=bool(a.get("dry_run", False)),
+
+        media_scan_paths=media_scan_paths,
+        media_scan_min_size_mb=float(a.get("media_scan_min_size_mb", 50.0)),
+        media_scan_interval_hours=float(a.get("media_scan_interval_hours", 24.0)),
 
         radarr_url=str(s.get("radarr_url", "")),
         radarr_api_key=str(s.get("radarr_api_key", "")),

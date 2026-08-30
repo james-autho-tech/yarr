@@ -1,7 +1,7 @@
 name: yArr
-version: "0.7.1"
+version: "0.8.0"
 slug: yarr
-description: Automated movie/TV discovery, surprise rotation and library trimming across TMDB/Radarr/Sonarr/Jellyfin, with optional SABnzbd monitoring (bundled AppDaemon)
+description: Automated movie/TV discovery, surprise rotation and library trimming across TMDB/Radarr/Sonarr/Jellyfin, with optional SABnzbd monitoring and NAS duplicate-media scanning (bundled AppDaemon)
 url: https://github.com/james-autho-tech/yarr
 arch:
   - aarch64
@@ -23,6 +23,14 @@ panel_title: yArr
 map:
   - type: addon_config
     read_only: false
+  # Read-only — the duplicate-media scan (apps.yaml's media_scan_paths)
+  # only ever reads and reports, never writes/deletes. Requires HA's
+  # own /media share to actually be pointed at your NAS first (Settings
+  # → System → Storage → Add Network Storage, Usage: Media) — this map
+  # entry alone doesn't grant access to anything if that hasn't been
+  # set up, it just mounts whatever HA itself considers /media.
+  - type: media
+    read_only: true
 # Real credentials for every external service yArr talks to.
 # AppDaemon's own apps.yaml loader has no !secret support (a bad tag
 # there silently kills the whole app — see the run script's

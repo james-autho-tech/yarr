@@ -162,6 +162,36 @@ size left, ETA, up to 10 in-progress items) every 60 seconds, and the
 web UI gets a SABnzbd card. Read-only — yArr never pauses, cancels, or
 reorders anything in the queue.
 
+## Duplicate media scan (optional)
+
+Finds candidate duplicate files directly on your NAS by exact file
+size — a strong signal on its own for video files above a size floor
+(default 50MB, well past trailers/samples), and far cheaper than
+hashing whole files across a large library. **Report-only**: yArr
+never deletes, moves, or renames anything it finds here, it just lists
+groups in the web UI's Duplicates tab for you to review yourself.
+
+This needs two things, in order:
+
+1. **HA's own `/media` share has to actually point at your NAS** —
+   Settings → System → Storage → Add Network Storage, using the same
+   CIFS/NFS share your Radarr/Sonarr/Jellyfin containers already point
+   at, with Usage set to **Media**. Supervisor add-ons (yArr included)
+   can only mount HA's own predefined shares, not arbitrary Docker bind
+   mounts — this step is what makes that share exist in the first
+   place. yArr's `config.yaml` already declares a read-only `media` map
+   entry; it just has nothing to see until this step is done.
+2. Set `media_scan_paths` in `apps.yaml` to the actual subpaths under
+   `/media` your library lives at once that share exists (e.g.
+   `/media/movies`, `/media/tv`) — check what's actually there via
+   Developer Tools or HA's own Media browser if unsure. Empty (the
+   default) means the whole feature stays off.
+
+Runs on `media_scan_interval_hours` (default 24h), or trigger one
+immediately with the **Scan Now** button in the web UI's Duplicates
+tab. `media_scan_min_size_mb` (default 50) filters out small files
+that would otherwise produce noisy false-feeling matches.
+
 ## Troubleshooting
 
 - **"Surprise Me Now" (or the webhook, or the keep-it toggle) does

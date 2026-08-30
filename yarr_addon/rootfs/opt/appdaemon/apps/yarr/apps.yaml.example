@@ -123,6 +123,19 @@ yarr:
   # each extra page costs a few more TMDB API calls per discovery tick.
   tmdb_pages: 3
 
+  # --- Duplicate media scan (optional) — needs HA's own /media share
+  # pointed at your NAS first (Settings → System → Storage → Add
+  # Network Storage, Usage: Media) and the read-only `media` map entry
+  # in config.yaml (already there). Leave media_scan_paths empty to
+  # disable this entirely — it's off by default. Report-only: yArr
+  # never deletes anything it finds here, only lists candidate groups
+  # in the web UI for you to review and act on yourself.
+  media_scan_paths: []
+  #   - /media/movies
+  #   - /media/tv
+  media_scan_min_size_mb: 50
+  media_scan_interval_hours: 24
+
   # If true, discovery/surprise picks are computed and logged but never
   # actually added to Radarr/Sonarr — useful for checking your genre/
   # rating settings are producing sensible picks before trusting it

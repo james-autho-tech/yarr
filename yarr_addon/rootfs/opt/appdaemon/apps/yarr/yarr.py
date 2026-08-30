@@ -13,6 +13,7 @@ from core import discovery as core_discovery
 from core import surprise as core_surprise
 from core import webhook as core_webhook
 from core import taste as core_taste
+from core import dupes as core_dupes
 
 from clients.tmdb import TMDBClient, TMDBError
 from clients.radarr import RadarrClient, RadarrError
@@ -71,6 +72,8 @@ class Yarr(hass.Hass):
             self.listen_event(self.on_accept_tv_surprise, "yarr_accept_tv_surprise")
             self.listen_event(self.on_deny_tv_surprise, "yarr_deny_tv_surprise")
             self.listen_event(self.on_delete_tv_surprise_now, "yarr_delete_tv_surprise_now")
+        if self.cfg.media_scan_enabled:
+            self.listen_event(self.on_scan_duplicates_now_pressed, "yarr_scan_duplicates_now")
         self.listen_event(self.on_jellyfin_webhook, "yarr_jellyfin_webhook")
 
         self.run_every(self.tick_discovery, "now", self.cfg.discovery_interval_hours * 3600)
@@ -82,11 +85,14 @@ class Yarr(hass.Hass):
         self.run_every(self.tick_reconcile_surprises, "now", 1800)
         if self.cfg.sabnzbd_enabled:
             self.run_every(self.tick_sabnzbd_status, "now", 60)
+        if self.cfg.media_scan_enabled:
+            self.run_every(self.tick_scan_duplicates, "now", self.cfg.media_scan_interval_hours * 3600)
         self.run_every(self.publish_status, "now", 60)
 
         self._log_event(f"yArr v{VERSION} started"
                          f"{' (TV enabled)' if self.cfg.tv_enabled else ''}"
-                         f"{' (SABnzbd monitoring enabled)' if self.cfg.sabnzbd_enabled else ''}.")
+                         f"{' (SABnzbd monitoring enabled)' if self.cfg.sabnzbd_enabled else ''}"
+                         f"{' (media duplicate scan enabled)' if self.cfg.media_scan_enabled else ''}.")
 
     # ------------------------------------------------------------------
     # ENABLE GATE
@@ -702,6 +708,54 @@ class Yarr(hass.Hass):
         self._save_state()
 
     # ------------------------------------------------------------------
+    # DUPLICATE MEDIA SCAN (read-only, report-only)
+    # ------------------------------------------------------------------
+
+    def _walk_media_files(self):
+        """The actual filesystem I/O — deliberately kept out of
+        core/dupes.py so that module stays pure/unit-testable. Any
+        unreadable file/directory is skipped rather than aborting the
+        whole scan (permissions quirks on a network share are common
+        and shouldn't take out the rest of the results)."""
+        files = []
+        for root_path in self.cfg.media_scan_paths:
+            for dirpath, _dirnames, filenames in os.walk(root_path):
+                for name in filenames:
+                    full_path = os.path.join(dirpath, name)
+                    try:
+                        size = os.path.getsize(full_path)
+                    except OSError:
+                        continue
+                    files.append(core_dupes.MediaFile(path=full_path, size=size))
+        return files
+
+    def on_scan_duplicates_now_pressed(self, event_name, data, kwargs):
+        self.tick_scan_duplicates({})
+
+    def tick_scan_duplicates(self, kwargs):
+        if not self.cfg.media_scan_enabled:
+            return
+        try:
+            files = self._walk_media_files()
+        except OSError as exc:
+            self._log_event(f"Media duplicate scan failed: {exc}", level="error")
+            return
+
+        min_size_bytes = int(self.cfg.media_scan_min_size_mb * 1_000_000)
+        groups = core_dupes.find_duplicate_groups(files, min_size_bytes=min_size_bytes)
+        self.state_data.duplicate_groups = [
+            [{"path": f.path, "size": f.size} for f in group] for group in groups]
+        self.state_data.duplicate_scan_at = datetime.now(timezone.utc).isoformat()
+        self._save_state()
+
+        if groups:
+            wasted_gb = core_dupes.wasted_bytes(groups) / 1_000_000_000
+            self._log_event(f"Media scan: {len(groups)} possible duplicate group(s) found "
+                             f"(~{wasted_gb:.1f} GB) — review in the web UI.")
+        else:
+            self._log_event("Media scan: no duplicates found.")
+
+    # ------------------------------------------------------------------
     # SABNZBD MONITORING (read-only)
     # ------------------------------------------------------------------
 
@@ -762,6 +816,7 @@ class Yarr(hass.Hass):
             "missing_secrets": self.missing_secrets,
             "tv_enabled": self.cfg.tv_enabled,
             "sabnzbd_enabled": self.cfg.sabnzbd_enabled,
+            "media_scan_enabled": self.cfg.media_scan_enabled,
             "learn_genres_from_library": self.cfg.learn_genres_from_library,
             "excluded_genres": self.cfg.excluded_genres,
             "denied_genres": self._denied_genres(),
@@ -783,6 +838,15 @@ class Yarr(hass.Hass):
                 "recent_suggested_shows": self._recent_suggested(self.state_data.suggested_shows),
                 "surprise_shows": self._surprise_rows(self.state_data.surprises_shows, id_field="tvdb_id"),
                 "pending_tv_surprise": self._pending_row(self.state_data.pending_tv_surprise),
+            })
+        if self.cfg.media_scan_enabled:
+            attrs.update({
+                "duplicate_groups": self.state_data.duplicate_groups[:50],
+                "duplicate_group_count": len(self.state_data.duplicate_groups),
+                "duplicate_wasted_bytes": sum(
+                    group[0]["size"] * (len(group) - 1) for group in self.state_data.duplicate_groups
+                    if group),
+                "duplicate_scan_at": self.state_data.duplicate_scan_at,
             })
         self.set_state("sensor.yarr_status",
                         state="Not Configured" if self.missing_secrets else "OK",
