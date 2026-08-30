@@ -162,7 +162,11 @@ header{padding:28px 24px 22px;border-bottom:2px solid var(--ink)}
 .wordmark .hi{color:var(--accent)}
 .tagline{color:var(--sub);font-size:13px;margin-top:6px;font-weight:500}
 
-main{max-width:820px;margin:0 auto;padding:26px 20px 60px}
+main{max-width:1600px;margin:0 auto;padding:26px 20px 60px}
+/* Text/table-based tabs stay at the original reading width — only the
+   Library tab's poster grid benefits from using the full wide main,
+   which is otherwise wasted space on anything wider than a phone. */
+.tab-page:not([data-tab="library"]){max-width:820px;margin:0 auto}
 
 .banner{background:var(--err);color:#1a0605;border-radius:6px;padding:14px 18px;
         margin-bottom:24px;font-size:14px;font-weight:600}
@@ -224,6 +228,26 @@ input.text-input:focus{outline:none;border-color:var(--accent)}
 .poster-meta{font-size:11px;color:var(--faint);font-family:var(--mono)}
 .poster-actions{margin-top:auto;padding-top:4px}
 .poster-actions button{width:100%;padding:9px 8px;font-size:11px}
+.poster-clickable{cursor:pointer;display:flex;flex-direction:column;flex:1}
+.poster-clickable:hover .poster-title{color:var(--accent)}
+
+.detail-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);
+      z-index:100;align-items:flex-start;justify-content:center;padding:40px 20px;
+      overflow-y:auto}
+.detail-modal.show{display:flex}
+.detail-card{background:var(--panel);border:1px solid var(--edge);border-radius:10px;
+      max-width:640px;width:100%;position:relative;padding:26px}
+.detail-close{position:absolute;top:14px;right:14px;background:transparent;color:var(--sub);
+      border:none;font-size:22px;line-height:1;padding:6px 10px;cursor:pointer;
+      font-weight:400;text-transform:none}
+.detail-close:hover{color:var(--ink);filter:none}
+.detail-body{display:flex;gap:22px;flex-wrap:wrap}
+.detail-poster{flex:0 0 180px;width:180px}
+.detail-poster img,.detail-poster .poster-placeholder{width:100%;aspect-ratio:2/3;
+      border-radius:6px}
+.detail-info{flex:1 1 300px;min-width:220px}
+.detail-title{font-size:22px;font-weight:800;color:var(--ink);margin-bottom:4px}
+.detail-overview{color:var(--sub);font-size:14px;line-height:1.6;margin-top:14px}
 
 table{width:100%;border-collapse:collapse;font-size:14px}
 table.list td, table.list th{padding:10px 6px;text-align:left;border-bottom:1px solid var(--edge)}
@@ -299,17 +323,15 @@ button.small-delete:disabled:hover{color:var(--faint);border-color:var(--edge)}
   <div class="tagline">Auto-stocks and auto-thins your Radarr/Sonarr library</div>
 </header>
 <nav class="tabs">
+  <button class="tab-btn" data-tab="library" onclick="selectTab('library')">Library</button>
   <button class="tab-btn" data-tab="movies" onclick="selectTab('movies')">Movies</button>
   <button class="tab-btn" data-tab="tv" id="nav-tv" style="display:none" onclick="selectTab('tv')">TV</button>
-  <button class="tab-btn" data-tab="library" onclick="selectTab('library')">Library</button>
   <button class="tab-btn" data-tab="sabnzbd" id="nav-sabnzbd" style="display:none" onclick="selectTab('sabnzbd')">SABnzbd</button>
   <button class="tab-btn" data-tab="dupes" id="nav-dupes" style="display:none" onclick="selectTab('dupes')">Cleanup</button>
   <button class="tab-btn" data-tab="log" onclick="selectTab('log')">Log</button>
 </nav>
 <main>
   <div id="banner"></div>
-  <section id="movies-section" class="tab-page" data-tab="movies"></section>
-  <section id="tv-section" class="tab-page" data-tab="tv"></section>
   <section id="library-section" class="tab-page" data-tab="library">
     <div class="section-head"><span class="section-title">Search &amp; Request</span></div>
     <div class="search-row">
@@ -341,14 +363,22 @@ button.small-delete:disabled:hover{color:var(--faint);border-color:var(--edge)}
       <div class="poster-grid" id="library-shows-body"></div>
     </div>
   </section>
+  <section id="movies-section" class="tab-page" data-tab="movies"></section>
+  <section id="tv-section" class="tab-page" data-tab="tv"></section>
   <section id="sabnzbd-section" class="tab-page" data-tab="sabnzbd"></section>
   <section id="dupes-section" class="tab-page" data-tab="dupes"></section>
   <section id="log-section" class="tab-page" data-tab="log"></section>
 </main>
 <div id="toast" class="toast"></div>
+<div id="detail-modal" class="detail-modal" onclick="if(event.target===this) closeDetailModal()">
+  <div class="detail-card">
+    <button class="detail-close" onclick="closeDetailModal()">&times;</button>
+    <div class="detail-body" id="detail-body"></div>
+  </div>
+</div>
 <script>
-let currentTab = 'movies';
-try { currentTab = localStorage.getItem('yarr_tab') || 'movies'; } catch (e) {}
+let currentTab = 'library';
+try { currentTab = localStorage.getItem('yarr_tab') || 'library'; } catch (e) {}
 let lastJunkEntries = [];
 let lastSearchResults = [];
 let lastLibraryMovies = [];
@@ -478,33 +508,58 @@ function posterImg(url, title) {
 }
 function searchResultCard(r, i) {
   return `<div class="poster-card">
-    ${posterImg(r.poster_url, r.title)}
-    <div class="poster-body">
-      <div class="poster-title">${esc(r.title)}</div>
-      <div class="poster-meta">${r.year||'—'} · ★ ${(r.rating||0).toFixed(1)}</div>
-      <div class="poster-actions">${r.in_library ? '<span class="badge">In library</span>' : `<button onclick="addSearchResult(${i}, this)">Add</button>`}</div>
+    <div class="poster-clickable" onclick="showDetail('search', ${i})">
+      ${posterImg(r.poster_url, r.title)}
+      <div class="poster-body">
+        <div class="poster-title">${esc(r.title)}</div>
+        <div class="poster-meta">${r.year||'—'} · ★ ${(r.rating||0).toFixed(1)}</div>
+      </div>
     </div>
+    <div class="poster-actions">${r.in_library ? '<span class="badge">In library</span>' : `<button onclick="addSearchResult(${i}, this)">Add</button>`}</div>
   </div>`;
 }
 function libraryMovieCard(m, i) {
   return `<div class="poster-card">
-    ${posterImg(m.poster_url, m.title)}
-    <div class="poster-body">
-      <div class="poster-title">${esc(m.title)}</div>
-      <div class="poster-meta">${m.year||'—'} · ${fmtBytes(m.size||0)}</div>
-      <div class="poster-actions"><button class="small-delete" onclick="deleteLibraryMovie(${i}, this)" ${allowLibraryDelete?'':'disabled'}>Delete</button></div>
+    <div class="poster-clickable" onclick="showDetail('movies', ${i})">
+      ${posterImg(m.poster_url, m.title)}
+      <div class="poster-body">
+        <div class="poster-title">${esc(m.title)}</div>
+        <div class="poster-meta">${m.year||'—'} · ${fmtBytes(m.size||0)}</div>
+      </div>
     </div>
+    <div class="poster-actions"><button class="small-delete" onclick="deleteLibraryMovie(${i}, this)" ${allowLibraryDelete?'':'disabled'}>Delete</button></div>
   </div>`;
 }
 function libraryShowCard(s, i) {
   return `<div class="poster-card">
-    ${posterImg(s.poster_url, s.title)}
-    <div class="poster-body">
-      <div class="poster-title">${esc(s.title)}</div>
-      <div class="poster-meta">${s.year||'—'} · ${fmtBytes(s.size||0)}</div>
-      <div class="poster-actions"><button class="small-delete" onclick="deleteLibraryShow(${i}, this)" ${allowLibraryDelete?'':'disabled'}>Delete</button></div>
+    <div class="poster-clickable" onclick="showDetail('shows', ${i})">
+      ${posterImg(s.poster_url, s.title)}
+      <div class="poster-body">
+        <div class="poster-title">${esc(s.title)}</div>
+        <div class="poster-meta">${s.year||'—'} · ${fmtBytes(s.size||0)}</div>
+      </div>
     </div>
+    <div class="poster-actions"><button class="small-delete" onclick="deleteLibraryShow(${i}, this)" ${allowLibraryDelete?'':'disabled'}>Delete</button></div>
   </div>`;
+}
+function showDetail(source, i) {
+  const item = source === 'search' ? lastSearchResults[i]
+             : source === 'shows' ? lastLibraryShows[i]
+             : lastLibraryMovies[i];
+  if (!item) return;
+  document.getElementById('detail-body').innerHTML = `
+    <div class="detail-poster">${posterImg(item.poster_url, item.title)}</div>
+    <div class="detail-info">
+      <div class="detail-title">${esc(item.title)}${item.year ? ' ('+item.year+')' : ''}</div>
+      <div class="poster-meta">${item.rating!=null ? '★ '+(item.rating||0).toFixed(1)+' · ' : ''}${item.size!=null ? fmtBytes(item.size||0) : ''}</div>
+      ${chipsRow(item.genres)}
+      <div class="detail-overview">${esc(item.overview) || 'No synopsis available.'}</div>
+    </div>
+  `;
+  document.getElementById('detail-modal').classList.add('show');
+}
+function closeDetailModal() {
+  document.getElementById('detail-modal').classList.remove('show');
 }
 function setSearchMediaType(t) {
   searchMediaType = t;
@@ -742,6 +797,7 @@ function bulkDeleteJunk(btn) {
   const msg = `Delete all ${lastJunkEntries.length} junk item(s)? This cannot be undone.\\n\\n` + names.join('\\n');
   runAction(btn, 'api/bulk-delete-junk', {}, { confirmMsg: msg });
 }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetailModal(); });
 refresh();
 setInterval(refresh, 5000);
 </script>

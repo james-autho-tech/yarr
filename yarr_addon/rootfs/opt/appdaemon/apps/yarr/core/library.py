@@ -25,5 +25,7 @@ def mark_in_library(candidates, library_ids: set, key="tmdb_id") -> list:
         "year": c.year,
         "rating": c.rating,
         "poster_url": poster_url(getattr(c, "poster_path", None)),
+        "genres": list(getattr(c, "genres", []) or []),
+        "overview": getattr(c, "overview", None) or "",
         "in_library": getattr(c, key) in library_ids,
     } for c in candidates]

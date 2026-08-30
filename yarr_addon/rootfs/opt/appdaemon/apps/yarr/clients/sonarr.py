@@ -65,6 +65,7 @@ class SonarrClient:
             "id": s["id"], "tvdb_id": s.get("tvdbId"), "title": s.get("title", ""),
             "year": s.get("year"), "monitored": bool(s.get("monitored", False)),
             "poster_url": _poster_url(s.get("images")),
+            "genres": s.get("genres", []), "overview": s.get("overview", ""),
             "size": (s.get("statistics") or {}).get("sizeOnDisk", 0),
         } for s in (series_list or []) if s.get("tvdbId")]
 

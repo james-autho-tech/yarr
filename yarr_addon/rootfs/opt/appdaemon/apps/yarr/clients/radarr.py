@@ -67,6 +67,7 @@ class RadarrClient:
             "id": m["id"], "tmdb_id": m.get("tmdbId"), "title": m.get("title", ""),
             "year": m.get("year"), "monitored": bool(m.get("monitored", False)),
             "poster_url": _poster_url(m.get("images")),
+            "genres": m.get("genres", []), "overview": m.get("overview", ""),
             "size": (m.get("movieFile") or {}).get("size", 0),
         } for m in (movies or [])]
 

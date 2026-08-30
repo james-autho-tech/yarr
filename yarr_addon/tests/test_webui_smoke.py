@@ -87,10 +87,12 @@ BASE_STATUS_ATTRS = {
     "junk_scan_at": "2026-08-30T17:00:00+00:00",
     "library_movies": [{"id": 1, "tmdb_id": 111, "title": "Existing Movie", "year": 2019,
                          "monitored": True, "size": 3_000_000_000,
-                         "poster_url": "https://image.tmdb.org/t/p/w300/existing.jpg"}],
+                         "poster_url": "https://image.tmdb.org/t/p/w300/existing.jpg",
+                         "genres": ["Action"], "overview": "An existing movie's plot."}],
     "library_movie_count": 1,
     "library_shows": [{"id": 2, "tvdb_id": 222, "title": "Existing Show", "year": 2018,
-                        "monitored": True, "size": 5_000_000_000, "poster_url": None}],
+                        "monitored": True, "size": 5_000_000_000, "poster_url": None,
+                        "genres": ["Drama"], "overview": "An existing show's plot."}],
     "library_show_count": 1,
     "library_synced_at": "2026-08-30T17:00:00+00:00",
     "last_search_query": "Some Query",
@@ -176,8 +178,8 @@ def test_page_loads_all_tabs_no_errors(browser_page):
     httpd, port = start_server(backend)
     try:
         page.goto(f"http://127.0.0.1:{port}/")
-        page.wait_for_selector("text=Surprise Me Now")
-        for tab in ["Movies", "TV", "Library", "SABnzbd", "Cleanup", "Log"]:
+        page.wait_for_selector("#library-search-input")
+        for tab in ["Library", "Movies", "TV", "SABnzbd", "Cleanup", "Log"]:
             page.click(f"button.tab-btn:has-text('{tab}')")
         assert errors == []
     finally:
@@ -190,11 +192,12 @@ def test_every_action_button_fires_and_does_not_crash(browser_page):
     httpd, port = start_server(backend)
     try:
         page.goto(f"http://127.0.0.1:{port}/")
-        page.wait_for_selector("text=Surprise Me Now")
+        page.wait_for_selector("#library-search-input")
         movies = page.locator("#movies-section")
         tv = page.locator("#tv-section")
         dupes = page.locator("#dupes-section")
 
+        page.click("button.tab-btn:has-text('Movies')")
         movies.get_by_role("button", name="Surprise Me Now", exact=True).click()
         page.wait_for_timeout(1500)
         movies.locator("button.ghost", has_text="Keep It").click()
@@ -239,7 +242,7 @@ def test_library_search_add_delete_and_filter(browser_page):
     httpd, port = start_server(backend)
     try:
         page.goto(f"http://127.0.0.1:{port}/")
-        page.wait_for_selector("text=Surprise Me Now")
+        page.wait_for_selector("#library-search-input")
         page.click("button.tab-btn:has-text('Library')")
         library = page.locator("#library-section")
 
@@ -275,6 +278,38 @@ def test_library_search_add_delete_and_filter(browser_page):
         httpd.shutdown()
 
 
+def test_library_detail_modal_opens_and_closes(browser_page):
+    page, errors = browser_page
+    backend = FakeBackend()
+    httpd, port = start_server(backend)
+    try:
+        page.goto(f"http://127.0.0.1:{port}/")
+        page.wait_for_selector("#library-search-input")
+        library = page.locator("#library-section")
+
+        # Clicking the poster/title area opens the modal with the
+        # item's overview and genres — never the Delete button next to
+        # it, which is a DOM sibling specifically so a click there
+        # can't bubble into the card's own click handler.
+        library.locator("#library-movies-body .poster-clickable").first.click()
+        modal = page.locator("#detail-modal")
+        assert "show" in (modal.get_attribute("class") or "")
+        assert page.locator("#detail-body").inner_text().find("Existing Movie") != -1
+        assert page.locator("#detail-body").inner_text().find("An existing movie's plot.") != -1
+
+        page.keyboard.press("Escape")
+        assert "show" not in (modal.get_attribute("class") or "")
+
+        # Deleting must never have opened the modal as a side effect.
+        library.get_by_role("button", name="Delete", exact=True).first.click()
+        page.wait_for_timeout(300)
+        assert "show" not in (modal.get_attribute("class") or "")
+
+        assert errors == []
+    finally:
+        httpd.shutdown()
+
+
 def test_accept_and_deny_pending_surprises(browser_page):
     page, errors = browser_page
     backend = FakeBackend({
@@ -284,6 +319,8 @@ def test_accept_and_deny_pending_surprises(browser_page):
     httpd, port = start_server(backend)
     try:
         page.goto(f"http://127.0.0.1:{port}/")
+        page.wait_for_selector("#library-search-input")
+        page.click("button.tab-btn:has-text('Movies')")
         page.wait_for_selector("text=Pending Film")
         page.get_by_role("button", name="Accept", exact=True).click()
         page.wait_for_timeout(1500)

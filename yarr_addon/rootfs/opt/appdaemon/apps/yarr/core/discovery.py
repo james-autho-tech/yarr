@@ -17,6 +17,8 @@ class Candidate:
     poster_path: str = None  # TMDB's own relative path (e.g. "/xyz.jpg") — only
                               # ever set by clients/tmdb.py's search methods, since
                               # nothing else (genre discovery, surprise picks) needs it
+    overview: str = None     # plot synopsis — same story as poster_path, only the
+                              # Library tab's search/detail view needs it
 
 
 @dataclass(frozen=True)
@@ -35,6 +37,7 @@ class TVCandidate:
     genres: list
     rating: float
     poster_path: str = None
+    overview: str = None
 
 
 def filter_candidates(candidates, *, allowed_genres, min_rating,

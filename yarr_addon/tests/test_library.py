@@ -2,9 +2,10 @@ from core.discovery import Candidate, TVCandidate
 from core.library import mark_in_library, poster_url
 
 
-def make(tmdb_id, rating=8.0, poster_path=None):
+def make(tmdb_id, rating=8.0, poster_path=None, genres=(), overview=None):
     return Candidate(tmdb_id=tmdb_id, imdb_id=None, title=f"Film {tmdb_id}",
-                      year=2020, genres=[], rating=rating, poster_path=poster_path)
+                      year=2020, genres=list(genres), rating=rating,
+                      poster_path=poster_path, overview=overview)
 
 
 def make_tv(tvdb_id, tmdb_id=None, rating=8.0):
@@ -57,3 +58,15 @@ def test_mark_in_library_carries_poster_url():
 def test_mark_in_library_poster_url_none_when_missing():
     rows = mark_in_library([make(1)], library_ids=set())
     assert rows[0]["poster_url"] is None
+
+
+def test_mark_in_library_carries_genres_and_overview():
+    rows = mark_in_library([make(1, genres=["Action", "Comedy"], overview="A plot.")], library_ids=set())
+    assert rows[0]["genres"] == ["Action", "Comedy"]
+    assert rows[0]["overview"] == "A plot."
+
+
+def test_mark_in_library_overview_defaults_to_empty_string():
+    rows = mark_in_library([make(1)], library_ids=set())
+    assert rows[0]["overview"] == ""
+    assert rows[0]["genres"] == []

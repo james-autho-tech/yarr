@@ -79,9 +79,11 @@ class TMDBClient:
         return body.get("imdb_id") or None
 
     def search_movies(self, query: str, *, page=1) -> list:
-        """Text search (Library tab's request hub) — unlike discover(),
-        this isn't genre-filtered at all, so genres is left empty on
-        every Candidate (nothing in the request flow needs it)."""
+        """Text search (Library tab's request hub/detail view). Not
+        genre-filtered like discover() (no allowed-genre list to check
+        against), but genre *names* are still resolved for display —
+        same reverse-lookup cache discover() populates."""
+        self._movie_genre_ids_for([])  # force-populate the name->id cache, ignoring the (empty) result
         body = self._get("/search/movie", {"query": query, "page": page, "include_adult": "false"})
         out = []
         for m in body.get("results", []):
@@ -91,15 +93,18 @@ class TMDBClient:
                     year = int(m["release_date"][:4])
                 except ValueError:
                     pass
+            genre_names = [name for name, gid in self._movie_genre_name_to_id.items()
+                           if gid in m.get("genre_ids", [])]
             out.append(Candidate(
                 tmdb_id=m["id"], imdb_id=None, title=m.get("title", ""),
-                year=year, genres=[], rating=float(m.get("vote_average") or 0.0),
-                poster_path=m.get("poster_path")))
+                year=year, genres=genre_names, rating=float(m.get("vote_average") or 0.0),
+                poster_path=m.get("poster_path"), overview=m.get("overview", "")))
         return out
 
     def search_tv(self, query: str, *, page=1) -> list:
         """Same tvdb_id-resolution requirement as discover_tv() — a
         result without one is dropped, Sonarr couldn't add it anyway."""
+        self._tv_genre_ids_for([])
         body = self._get("/search/tv", {"query": query, "page": page, "include_adult": "false"})
         out = []
         for m in body.get("results", []):
@@ -116,11 +121,13 @@ class TMDBClient:
             tvdb_id = ext.get("tvdb_id")
             if not tvdb_id:
                 continue
+            genre_names = [name for name, gid in self._tv_genre_name_to_id.items()
+                           if gid in m.get("genre_ids", [])]
             out.append(TVCandidate(
                 tmdb_id=m["id"], tvdb_id=tvdb_id, imdb_id=ext.get("imdb_id"),
-                title=m.get("name", ""), year=year, genres=[],
+                title=m.get("name", ""), year=year, genres=genre_names,
                 rating=float(m.get("vote_average") or 0.0),
-                poster_path=m.get("poster_path")))
+                poster_path=m.get("poster_path"), overview=m.get("overview", "")))
         return out
 
     def discover_tv(self, genres, min_rating, *, pages=1) -> list:

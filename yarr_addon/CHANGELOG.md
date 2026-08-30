@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.14.2
+
+- **Library is now the first tab** and the default landing view.
+- Clicking a poster/title in the Library tab opens a **detail view**
+  (synopsis, genres, rating/size) instead of only showing the card's
+  title and year — the Add/Delete button sits outside the clickable
+  area so it never triggers the detail view by accident. Press Escape
+  or click outside the card to close it.
+- **The page is much wider on desktop** — the poster grid was
+  capped at the same 820px reading-width used for the text-table
+  tabs, which meant only ~5 columns even on a wide monitor. The
+  Library tab now uses the full page width (up to 1600px); the
+  text/table tabs (Movies, TV, SABnzbd, Cleanup, Log) keep the
+  original narrower width, since a table of text doesn't benefit
+  from stretching edge to edge the way a poster grid does.
+
 ## 0.14.1
 
 - The Library tab (search results and your existing library) now
