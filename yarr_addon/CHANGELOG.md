@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.14.1
+
+- The Library tab (search results and your existing library) now
+  shows **poster art in a card grid** instead of plain text rows.
+  Search results use TMDB's own poster image; your existing library
+  uses the poster Radarr/Sonarr already has cached (their own
+  `images` field, which carries a publicly-reachable TMDB-hosted URL)
+  — no extra API calls needed either way. Falls back to a plain
+  title card when no poster is available.
+
 ## 0.14.0
 
 - Added a **Library** tab: search TMDB for any movie/show and add it

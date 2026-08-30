@@ -86,16 +86,18 @@ BASE_STATUS_ATTRS = {
     "junk_bytes": 1_500_000_000,
     "junk_scan_at": "2026-08-30T17:00:00+00:00",
     "library_movies": [{"id": 1, "tmdb_id": 111, "title": "Existing Movie", "year": 2019,
-                         "monitored": True, "size": 3_000_000_000}],
+                         "monitored": True, "size": 3_000_000_000,
+                         "poster_url": "https://image.tmdb.org/t/p/w300/existing.jpg"}],
     "library_movie_count": 1,
     "library_shows": [{"id": 2, "tvdb_id": 222, "title": "Existing Show", "year": 2018,
-                        "monitored": True, "size": 5_000_000_000}],
+                        "monitored": True, "size": 5_000_000_000, "poster_url": None}],
     "library_show_count": 1,
     "library_synced_at": "2026-08-30T17:00:00+00:00",
     "last_search_query": "Some Query",
     "last_search_media_type": "movie",
     "last_search_results": [{"tmdb_id": 999, "tvdb_id": None, "title": "New Movie",
-                              "year": 2024, "rating": 7.8, "in_library": False}],
+                              "year": 2024, "rating": 7.8, "in_library": False,
+                              "poster_url": "https://image.tmdb.org/t/p/w300/new.jpg"}],
     "last_search_at": "2026-08-30T17:00:00+00:00",
     "allow_library_delete": True,
     "log": [{"ts": "2026-08-30T17:00:00+00:00", "level": "info", "message": "Initial state."}],
@@ -256,7 +258,7 @@ def test_library_search_add_delete_and_filter(browser_page):
         # innerHTML rebuild in refresh().
         page.fill("#library-filter-input", "Existing Movie")
         page.wait_for_timeout(200)
-        assert library.locator("tbody#library-movies-body tr").count() == 1
+        assert library.locator("#library-movies-body .poster-card").count() == 1
         assert page.input_value("#library-filter-input") == "Existing Movie"
 
         page.fill("#library-filter-input", "")

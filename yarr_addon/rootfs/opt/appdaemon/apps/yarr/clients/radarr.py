@@ -11,6 +11,19 @@ class RadarrError(Exception):
     pass
 
 
+def _poster_url(images):
+    """Radarr's own `images` array already carries a publicly-reachable
+    TMDB-hosted poster URL (remoteUrl) per movie — used as-is for the
+    Library tab's poster grid instead of Radarr's own /MediaCover/...
+    path, since the browser can't authenticate to Radarr directly and
+    may not even be able to reach it on the network Home Assistant runs
+    on, whereas TMDB's image CDN is always public."""
+    for img in images or []:
+        if img.get("coverType") == "poster" and img.get("remoteUrl"):
+            return img["remoteUrl"]
+    return None
+
+
 class RadarrClient:
     def __init__(self, url, api_key):
         self.url = (url or "").rstrip("/")
@@ -53,6 +66,7 @@ class RadarrClient:
         return [{
             "id": m["id"], "tmdb_id": m.get("tmdbId"), "title": m.get("title", ""),
             "year": m.get("year"), "monitored": bool(m.get("monitored", False)),
+            "poster_url": _poster_url(m.get("images")),
             "size": (m.get("movieFile") or {}).get("size", 0),
         } for m in (movies or [])]
 

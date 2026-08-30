@@ -13,6 +13,16 @@ class SonarrError(Exception):
     pass
 
 
+def _poster_url(images):
+    """Mirrors clients/radarr.py's _poster_url — Sonarr's own `images`
+    array on a series already carries a publicly-reachable TMDB-hosted
+    poster URL, used as-is for the Library tab's poster grid."""
+    for img in images or []:
+        if img.get("coverType") == "poster" and img.get("remoteUrl"):
+            return img["remoteUrl"]
+    return None
+
+
 class SonarrClient:
     def __init__(self, url, api_key):
         self.url = (url or "").rstrip("/")
@@ -54,6 +64,7 @@ class SonarrClient:
         return [{
             "id": s["id"], "tvdb_id": s.get("tvdbId"), "title": s.get("title", ""),
             "year": s.get("year"), "monitored": bool(s.get("monitored", False)),
+            "poster_url": _poster_url(s.get("images")),
             "size": (s.get("statistics") or {}).get("sizeOnDisk", 0),
         } for s in (series_list or []) if s.get("tvdbId")]
 

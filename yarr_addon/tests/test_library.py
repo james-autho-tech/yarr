@@ -1,10 +1,10 @@
 from core.discovery import Candidate, TVCandidate
-from core.library import mark_in_library
+from core.library import mark_in_library, poster_url
 
 
-def make(tmdb_id, rating=8.0):
+def make(tmdb_id, rating=8.0, poster_path=None):
     return Candidate(tmdb_id=tmdb_id, imdb_id=None, title=f"Film {tmdb_id}",
-                      year=2020, genres=[], rating=rating)
+                      year=2020, genres=[], rating=rating, poster_path=poster_path)
 
 
 def make_tv(tvdb_id, tmdb_id=None, rating=8.0):
@@ -39,3 +39,21 @@ def test_movie_candidate_has_no_tvdb_id():
 
 def test_empty_candidates_returns_empty_list():
     assert mark_in_library([], library_ids={1, 2}) == []
+
+
+def test_poster_url_builds_full_tmdb_url():
+    assert poster_url("/abc.jpg") == "https://image.tmdb.org/t/p/w300/abc.jpg"
+
+
+def test_poster_url_none_when_no_path():
+    assert poster_url(None) is None
+
+
+def test_mark_in_library_carries_poster_url():
+    rows = mark_in_library([make(1, poster_path="/abc.jpg")], library_ids=set())
+    assert rows[0]["poster_url"] == "https://image.tmdb.org/t/p/w300/abc.jpg"
+
+
+def test_mark_in_library_poster_url_none_when_missing():
+    rows = mark_in_library([make(1)], library_ids=set())
+    assert rows[0]["poster_url"] is None

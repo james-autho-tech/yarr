@@ -157,7 +157,11 @@ curl -X POST '<your HA base URL>/api/webhook/yarr_playback_stop' \
 ## Library: search, request, and manage your existing collection
 
 The **Library** tab is always on (no config needed to enable it) and
-has two parts.
+has two parts, both shown as a poster-card grid rather than plain
+rows. Search results show TMDB's own poster; existing library items
+show the poster Radarr/Sonarr already cached for them (no extra API
+calls to fetch it) — either falls back to a plain title card when no
+poster art is available.
 
 **Search & Request**: type a movie or show title and press Search
 (there's no live-as-you-type search — see "Why isn't search instant"

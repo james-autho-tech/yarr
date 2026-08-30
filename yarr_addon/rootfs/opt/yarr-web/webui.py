@@ -210,6 +210,21 @@ input.text-input:focus{outline:none;border-color:var(--accent)}
 .badge{font-size:11px;padding:3px 10px;border-radius:4px;font-weight:800;letter-spacing:.02em;
       text-transform:uppercase;background:var(--ok);color:#06210e}
 
+.poster-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));
+      gap:14px;margin:14px 0}
+.poster-card{background:var(--panel);border:1px solid var(--edge);border-radius:8px;
+      overflow:hidden;display:flex;flex-direction:column}
+.poster-card .poster-img{width:100%;aspect-ratio:2/3;object-fit:cover;
+      background:var(--edge);display:block}
+.poster-placeholder{width:100%;aspect-ratio:2/3;background:var(--edge);
+      display:flex;align-items:center;justify-content:center;color:var(--faint);
+      font-size:12px;font-weight:700;text-align:center;padding:10px}
+.poster-body{padding:10px 10px 12px;display:flex;flex-direction:column;gap:6px;flex:1}
+.poster-title{font-weight:700;font-size:13px;line-height:1.3;color:var(--ink)}
+.poster-meta{font-size:11px;color:var(--faint);font-family:var(--mono)}
+.poster-actions{margin-top:auto;padding-top:4px}
+.poster-actions button{width:100%;padding:9px 8px;font-size:11px}
+
 table{width:100%;border-collapse:collapse;font-size:14px}
 table.list td, table.list th{padding:10px 6px;text-align:left;border-bottom:1px solid var(--edge)}
 table.list th{color:var(--sub);font-size:11px;text-transform:uppercase;letter-spacing:.06em;
@@ -320,14 +335,10 @@ button.small-delete:disabled:hover{color:var(--faint);border-color:var(--edge)}
              placeholder="Filter your library..." oninput="onLibraryFilterInput()">
     </div>
     <div class="section-note" style="margin-bottom:6px">Movies</div>
-    <table class="list" style="margin-bottom:20px"><thead><tr><th>Title</th><th>Year</th><th>Size</th><th></th></tr></thead>
-      <tbody id="library-movies-body"></tbody>
-    </table>
+    <div class="poster-grid" id="library-movies-body"></div>
     <div id="library-shows-block" style="display:none">
-      <div class="section-note" style="margin-bottom:6px">Shows</div>
-      <table class="list"><thead><tr><th>Title</th><th>Year</th><th>Size</th><th></th></tr></thead>
-        <tbody id="library-shows-body"></tbody>
-      </table>
+      <div class="section-note" style="margin:20px 0 6px">Shows</div>
+      <div class="poster-grid" id="library-shows-body"></div>
     </div>
   </section>
   <section id="sabnzbd-section" class="tab-page" data-tab="sabnzbd"></section>
@@ -461,17 +472,39 @@ function proposalCard(pending, acceptFn, denyFn) {
   </div>`;
 }
 
-function searchResultRow(r, i) {
-  return `<tr><td class="title-cell">${esc(r.title)}</td><td class="year">${r.year||'—'}</td><td class="year">${(r.rating||0).toFixed(1)}</td>
-    <td>${r.in_library ? '<span class="badge">In library</span>' : `<button onclick="addSearchResult(${i}, this)">Add</button>`}</td></tr>`;
+function posterImg(url, title) {
+  return url ? `<img class="poster-img" src="${esc(url)}" alt="${esc(title)}" loading="lazy">`
+             : `<div class="poster-placeholder">${esc(title)}</div>`;
 }
-function libraryMovieRow(m, i) {
-  return `<tr><td class="title-cell">${esc(m.title)}</td><td class="year">${m.year||'—'}</td><td class="year">${fmtBytes(m.size||0)}</td>
-    <td><button class="small-delete" onclick="deleteLibraryMovie(${i}, this)" ${allowLibraryDelete?'':'disabled'}>Delete</button></td></tr>`;
+function searchResultCard(r, i) {
+  return `<div class="poster-card">
+    ${posterImg(r.poster_url, r.title)}
+    <div class="poster-body">
+      <div class="poster-title">${esc(r.title)}</div>
+      <div class="poster-meta">${r.year||'—'} · ★ ${(r.rating||0).toFixed(1)}</div>
+      <div class="poster-actions">${r.in_library ? '<span class="badge">In library</span>' : `<button onclick="addSearchResult(${i}, this)">Add</button>`}</div>
+    </div>
+  </div>`;
 }
-function libraryShowRow(s, i) {
-  return `<tr><td class="title-cell">${esc(s.title)}</td><td class="year">${s.year||'—'}</td><td class="year">${fmtBytes(s.size||0)}</td>
-    <td><button class="small-delete" onclick="deleteLibraryShow(${i}, this)" ${allowLibraryDelete?'':'disabled'}>Delete</button></td></tr>`;
+function libraryMovieCard(m, i) {
+  return `<div class="poster-card">
+    ${posterImg(m.poster_url, m.title)}
+    <div class="poster-body">
+      <div class="poster-title">${esc(m.title)}</div>
+      <div class="poster-meta">${m.year||'—'} · ${fmtBytes(m.size||0)}</div>
+      <div class="poster-actions"><button class="small-delete" onclick="deleteLibraryMovie(${i}, this)" ${allowLibraryDelete?'':'disabled'}>Delete</button></div>
+    </div>
+  </div>`;
+}
+function libraryShowCard(s, i) {
+  return `<div class="poster-card">
+    ${posterImg(s.poster_url, s.title)}
+    <div class="poster-body">
+      <div class="poster-title">${esc(s.title)}</div>
+      <div class="poster-meta">${s.year||'—'} · ${fmtBytes(s.size||0)}</div>
+      <div class="poster-actions"><button class="small-delete" onclick="deleteLibraryShow(${i}, this)" ${allowLibraryDelete?'':'disabled'}>Delete</button></div>
+    </div>
+  </div>`;
 }
 function setSearchMediaType(t) {
   searchMediaType = t;
@@ -514,14 +547,14 @@ function onLibraryFilterInput() {
   const moviesBody = document.getElementById('library-movies-body');
   if (moviesBody) {
     const rows = lastLibraryMovies.map((item, i) => ({item, i})).filter(({item}) => item.title.toLowerCase().includes(q));
-    moviesBody.innerHTML = rows.length ? rows.map(({item, i}) => libraryMovieRow(item, i)).join('')
-      : `<tr><td class="empty-row" colspan="4">${lastLibraryMovies.length ? 'No matches.' : 'No movies found — press Refresh Library.'}</td></tr>`;
+    moviesBody.innerHTML = rows.length ? rows.map(({item, i}) => libraryMovieCard(item, i)).join('')
+      : `<div class="empty-row">${lastLibraryMovies.length ? 'No matches.' : 'No movies found — press Refresh Library.'}</div>`;
   }
   const showsBody = document.getElementById('library-shows-body');
   if (showsBody) {
     const rows = lastLibraryShows.map((item, i) => ({item, i})).filter(({item}) => item.title.toLowerCase().includes(q));
-    showsBody.innerHTML = rows.length ? rows.map(({item, i}) => libraryShowRow(item, i)).join('')
-      : `<tr><td class="empty-row" colspan="4">${lastLibraryShows.length ? 'No matches.' : 'No shows found — press Refresh Library.'}</td></tr>`;
+    showsBody.innerHTML = rows.length ? rows.map(({item, i}) => libraryShowCard(item, i)).join('')
+      : `<div class="empty-row">${lastLibraryShows.length ? 'No matches.' : 'No shows found — press Refresh Library.'}</div>`;
   }
 }
 
@@ -610,9 +643,7 @@ async function refresh() {
     ? `Last searched ${d.last_search_media_type||'movie'}: "${d.last_search_query}" (${lastSearchResults.length} result(s))`
     : '';
   document.getElementById('search-results-container').innerHTML = lastSearchResults.length
-    ? `<table class="list" style="margin-bottom:30px"><thead><tr><th>Title</th><th>Year</th><th>Rating</th><th></th></tr></thead><tbody>
-        ${lastSearchResults.map((r,i) => searchResultRow(r,i)).join('')}
-      </tbody></table>`
+    ? `<div class="poster-grid" style="margin-bottom:30px">${lastSearchResults.map((r,i) => searchResultCard(r,i)).join('')}</div>`
     : '<div class="empty-row" style="margin-bottom:30px">No search results yet — type something above and press Search.</div>';
 
   document.getElementById('library-synced-note').textContent =

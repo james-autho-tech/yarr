@@ -3,6 +3,15 @@ here (those live in clients/tmdb.py, clients/radarr.py,
 clients/sonarr.py, called from yarr.py; core/ stays free of
 HTTP/AppDaemon dependencies, mirroring core/discovery.py's split)."""
 
+# TMDB's own image CDN — poster_path is always a bare relative path
+# (e.g. "/xyz.jpg") from their API; w300 is a fixed, reasonably-sized
+# width, plenty for a card-grid thumbnail without pulling full-res art.
+TMDB_POSTER_BASE = "https://image.tmdb.org/t/p/w300"
+
+
+def poster_url(poster_path):
+    return f"{TMDB_POSTER_BASE}{poster_path}" if poster_path else None
+
 
 def mark_in_library(candidates, library_ids: set, key="tmdb_id") -> list:
     """Shapes TMDB search Candidates/TVCandidates into plain dicts
@@ -15,5 +24,6 @@ def mark_in_library(candidates, library_ids: set, key="tmdb_id") -> list:
         "title": c.title,
         "year": c.year,
         "rating": c.rating,
+        "poster_url": poster_url(getattr(c, "poster_path", None)),
         "in_library": getattr(c, key) in library_ids,
     } for c in candidates]

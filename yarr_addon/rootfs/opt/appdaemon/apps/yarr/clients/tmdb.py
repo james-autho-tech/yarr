@@ -93,7 +93,8 @@ class TMDBClient:
                     pass
             out.append(Candidate(
                 tmdb_id=m["id"], imdb_id=None, title=m.get("title", ""),
-                year=year, genres=[], rating=float(m.get("vote_average") or 0.0)))
+                year=year, genres=[], rating=float(m.get("vote_average") or 0.0),
+                poster_path=m.get("poster_path")))
         return out
 
     def search_tv(self, query: str, *, page=1) -> list:
@@ -118,7 +119,8 @@ class TMDBClient:
             out.append(TVCandidate(
                 tmdb_id=m["id"], tvdb_id=tvdb_id, imdb_id=ext.get("imdb_id"),
                 title=m.get("name", ""), year=year, genres=[],
-                rating=float(m.get("vote_average") or 0.0)))
+                rating=float(m.get("vote_average") or 0.0),
+                poster_path=m.get("poster_path")))
         return out
 
     def discover_tv(self, genres, min_rating, *, pages=1) -> list:
