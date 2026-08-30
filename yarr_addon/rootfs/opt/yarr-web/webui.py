@@ -519,7 +519,8 @@ async function refresh() {
         <div class="stat"><div class="lbl">Items found</div><div class="val">${d.junk_count||0}</div></div>
         <div class="stat"><div class="lbl">Space wasted</div><div class="val small">${fmtBytes(d.junk_bytes||0)}</div></div>
       </div>
-      <div class="mode-line">Leftover SABnzbd extraction junk: an _UNPACK_/_FAILED_ folder left behind by a failed or interrupted unpack, or a stray archive piece that never got extracted — the usual cause of a bogus "UNPACK" entry showing up in Jellyfin. Deleting a folder here removes it and everything inside it, and refreshes Jellyfin's library afterward.</div>
+      <div class="mode-line">Leftover SABnzbd extraction junk: an _UNPACK_/_FAILED_ folder left behind by a failed or interrupted unpack, or a stray archive piece that never got extracted — the usual cause of a bogus "UNPACK" entry showing up in Jellyfin. Empty (0-byte) junk is deleted automatically on every scan; anything listed below has real data in it and needs a button press. Deleting refreshes Jellyfin's library afterward.</div>
+      ${junk.length ? `<div style="margin:14px 0 0"><button class="ghost" onclick="runAction(this,'api/bulk-delete-junk',{},{confirmMsg:'Delete all ${junk.length} junk item(s) listed below? This cannot be undone.'})">Delete All Junk</button></div>` : ''}
       ${junk.length ? `<table class="list" style="margin:14px 0"><thead><tr><th>Item</th><th>Size</th><th></th></tr></thead><tbody>
         ${junk.map(j => `<tr><td class="title-cell" title="${esc(j.path)}">${esc(baseName(j.path))}${j.is_dir ? ' <span class="section-note">(folder)</span>' : ''}</td><td class="year">${fmtBytes(j.size)}</td>
           <td><button class="small-delete" onclick="runAction(this,'api/delete-junk-entry',{path:${escAttr(JSON.stringify(j.path))}},{confirmMsg:${escAttr(JSON.stringify(j.is_dir ? 'Delete this entire folder and everything inside it? This cannot be undone.' : 'Delete this file from disk now? This cannot be undone.'))}})">Delete</button></td></tr>`).join('')}
@@ -616,6 +617,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             elif path.endswith("/api/delete-junk-entry"):
                 file_path = self._read_json_body().get("path")
                 ha_fire_event("yarr_delete_junk_entry", {"path": file_path})
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/bulk-delete-junk"):
+                ha_fire_event("yarr_bulk_delete_junk")
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")

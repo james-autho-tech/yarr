@@ -196,6 +196,8 @@ def test_every_action_button_fires_and_does_not_crash(browser_page):
         page.wait_for_timeout(1500)
         dupes.get_by_role("button", name="Delete All Inferior Duplicates", exact=True).click()
         page.wait_for_timeout(1500)
+        dupes.get_by_role("button", name="Delete All Junk", exact=True).click()
+        page.wait_for_timeout(1500)
         dupes.get_by_role("button", name="Delete", exact=True).first.click()
         page.wait_for_timeout(1500)
         dupes.get_by_role("button", name="Delete", exact=True).last.click()
@@ -208,6 +210,7 @@ def test_every_action_button_fires_and_does_not_crash(browser_page):
         assert "yarr_delete_surprise_now" in fired_names
         assert "yarr_scan_duplicates_now" in fired_names
         assert "yarr_bulk_delete_duplicates" in fired_names
+        assert "yarr_bulk_delete_junk" in fired_names
         assert "yarr_delete_duplicate_file" in fired_names
         assert "yarr_delete_junk_entry" in fired_names
         assert "set_state:input_boolean.yarr_keep_surprise" in fired_names

@@ -35,6 +35,12 @@ def test_media_scan_disabled_by_default():
     assert cfg.media_scan_enabled is False
     assert cfg.media_scan_min_size_mb == 50.0
     assert cfg.media_scan_interval_hours == 24.0
+    assert cfg.junk_min_age_hours == 1.0
+
+
+def test_junk_min_age_hours_parsed():
+    cfg = build_config({"junk_min_age_hours": 3}, {})
+    assert cfg.junk_min_age_hours == 3.0
 
 
 def test_media_scan_enabled_when_paths_set():

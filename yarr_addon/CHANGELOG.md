@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.13.0
+
+- **Empty junk is now deleted automatically.** A leftover
+  `_UNPACK_`/`_FAILED_` folder or stray archive piece with 0 bytes in
+  it — SABnzbd created it but never wrote any real data before giving
+  up — is removed on every scan with no button press, since there's no
+  content it could possibly destroy. Anything with real data in it
+  still requires an explicit delete.
+- Added a **Delete All Junk** bulk button (Cleanup tab) for clearing
+  every remaining (non-empty) junk item from the last scan in one
+  click — no per-group ambiguity check needed here, unlike bulk
+  duplicate delete, since a junk entry is unambiguously junk by
+  definition once it's on the list at all.
+- Added `junk_min_age_hours` (default 1h): a folder or file only ever
+  counts as junk once it hasn't been modified for this long. Without
+  it, a folder SABnzbd is actively extracting into right now would
+  look identical to one it abandoned — this is what stops an
+  in-progress download from getting deleted mid-extraction, for both
+  the new auto-delete and the existing manual delete paths.
+
 ## 0.12.0
 
 - Added **failed-unpack / junk cleanup** to the media scan (Duplicates

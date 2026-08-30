@@ -40,10 +40,12 @@ monitoring — bundling its own AppDaemon runtime.
   leftover SABnzbd extraction junk — an `_UNPACK_`/`_FAILED_` folder
   left behind by a failed unpack (the usual cause of a bogus "UNPACK"
   entry in Jellyfin), or a stray archive piece that never got
-  extracted — with its own Delete button that also refreshes
-  Jellyfin's library afterward. Every delete cleans up any now-empty
-  folder left behind and triggers a Radarr/Sonarr rescan — but yArr
-  never deletes anything without you pressing a button.
+  extracted. Empty (0-byte) junk is cleared automatically since there's
+  nothing it could destroy; anything with real data in it needs a
+  Delete button (per-item, or **Delete All Junk** for everything at
+  once), and refreshes Jellyfin's library afterward. Every delete
+  cleans up any now-empty folder left behind and triggers a
+  Radarr/Sonarr rescan.
 
 TV/Sonarr, SABnzbd, and the media cleanup scan are all entirely opt-in —
 leave their Configuration-tab fields / apps.yaml paths blank to run

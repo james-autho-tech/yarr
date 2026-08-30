@@ -247,15 +247,31 @@ Jellyfin scans, Jellyfin shows it as a bogus library entry (this is
 the usual cause of a stray "UNPACK" item showing up in Jellyfin). The
 same scan pass also looks for stray raw archive pieces (`.rar`,
 `.r00`-`.r99`, `.par2`) that never got extracted into anything at all.
-Both are reported under **Failed Unpacks / Junk** in the same tab,
-each with its own Delete button. Deleting a folder here removes it and
-everything inside it (`shutil.rmtree`, not a single file) — same
-"only ever a path from the last scan" safety rule as the duplicate
-delete. After a successful delete, yArr also asks Jellyfin to refresh
-its library (`POST /Library/Refresh`) so the bogus entry disappears
-right away instead of waiting for Jellyfin's own next scheduled scan —
-the only write this add-on ever makes to Jellyfin; everything else is
-read-only.
+Both are reported under **Failed Unpacks / Junk** in the same tab.
+Deleting a folder here removes it and everything inside it
+(`shutil.rmtree`, not a single file). After any delete, yArr also asks
+Jellyfin to refresh its library (`POST /Library/Refresh`) so the bogus
+entry disappears right away instead of waiting for Jellyfin's own next
+scheduled scan — the only write this add-on ever makes to Jellyfin;
+everything else is read-only.
+
+**Age safety net**: a folder or file only ever counts as junk once it
+hasn't been modified for `junk_min_age_hours` (default 1h). Without
+this, a folder SABnzbd is actively extracting into *right now* would
+look identical to one it abandoned — deleting it mid-extraction would
+actually destroy a download in progress. Anything too recent is simply
+left alone until the next scan.
+
+**Auto-delete vs. manual delete**: an empty (0-byte) junk item —
+SABnzbd created the folder or file but never wrote any real data into
+it before giving up — is deleted automatically on every scan, no
+button required, because there is no content it could possibly
+destroy. Anything with real bytes in it always needs an explicit
+delete: either its own per-item Delete button, or **Delete All Junk**
+(one click, one confirm showing the count) to clear every remaining
+item from the last scan in a single pass — no "only one tracked copy"
+ambiguity check like bulk duplicate delete, since a junk entry is
+unambiguously junk by definition once it's on this list at all.
 
 ## Troubleshooting
 

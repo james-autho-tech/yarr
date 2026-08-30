@@ -1,5 +1,6 @@
 import os
 import shutil
+import time
 from datetime import datetime, timedelta, timezone
 
 import appdaemon.plugins.hass.hassapi as hass
@@ -79,6 +80,7 @@ class Yarr(hass.Hass):
             self.listen_event(self.on_delete_duplicate_file, "yarr_delete_duplicate_file")
             self.listen_event(self.on_bulk_delete_duplicates_pressed, "yarr_bulk_delete_duplicates")
             self.listen_event(self.on_delete_junk_entry, "yarr_delete_junk_entry")
+            self.listen_event(self.on_bulk_delete_junk_pressed, "yarr_bulk_delete_junk")
         self.listen_event(self.on_jellyfin_webhook, "yarr_jellyfin_webhook")
 
         self.run_every(self.tick_discovery, "now", self.cfg.discovery_interval_hours * 3600)
@@ -739,6 +741,25 @@ class Yarr(hass.Hass):
                     continue
         return total
 
+    @staticmethod
+    def _latest_mtime_in_dir(path) -> float:
+        """Newest mtime of anything in this directory tree (falling
+        back to the directory's own mtime if it's empty) — used to
+        tell a genuinely abandoned unpack folder apart from one
+        SABnzbd is actively writing to right now, which would
+        otherwise look identical."""
+        try:
+            latest = os.path.getmtime(path)
+        except OSError:
+            latest = 0.0
+        for dirpath, _dirnames, filenames in os.walk(path):
+            for name in filenames:
+                try:
+                    latest = max(latest, os.path.getmtime(os.path.join(dirpath, name)))
+                except OSError:
+                    continue
+        return latest
+
     def _walk_media_and_junk(self):
         """The actual filesystem I/O — deliberately kept out of
         core/dupes.py and core/junk.py so those stay pure/unit-testable.
@@ -750,15 +771,20 @@ class Yarr(hass.Hass):
         and shouldn't take out the rest of the results). A directory
         matching core_junk's _UNPACK_/_FAILED_ naming is recorded whole
         and never descended into — everything inside it is being
-        deleted as one unit, not inspected file-by-file."""
+        deleted as one unit, not inspected file-by-file. Anything
+        matching a junk pattern but modified more recently than
+        junk_min_age_hours is treated as ordinary (still-active,
+        possibly) content instead — see _latest_mtime_in_dir's
+        docstring for why."""
+        age_cutoff = time.time() - self.cfg.junk_min_age_hours * 3600
         media_files = []
         junk_entries = []
         for root_path in self.cfg.media_scan_paths:
             for dirpath, dirnames, filenames in os.walk(root_path):
                 keep_dirs = []
                 for d in dirnames:
-                    if core_junk.is_junk_dir_name(d):
-                        full_path = os.path.join(dirpath, d)
+                    full_path = os.path.join(dirpath, d)
+                    if core_junk.is_junk_dir_name(d) and self._latest_mtime_in_dir(full_path) <= age_cutoff:
                         junk_entries.append(
                             {"path": full_path, "size": self._dir_size(full_path), "is_dir": True})
                     else:
@@ -772,7 +798,12 @@ class Yarr(hass.Hass):
                     except OSError:
                         continue
                     if core_junk.is_junk_file_name(name):
-                        junk_entries.append({"path": full_path, "size": size, "is_dir": False})
+                        try:
+                            mtime = os.path.getmtime(full_path)
+                        except OSError:
+                            mtime = 0.0
+                        if mtime <= age_cutoff:
+                            junk_entries.append({"path": full_path, "size": size, "is_dir": False})
                         continue
                     media_files.append(core_dupes.MediaFile(path=full_path, size=size))
         return media_files, junk_entries
@@ -811,8 +842,45 @@ class Yarr(hass.Hass):
         self.state_data.duplicate_groups = [
             [{"path": f.path, "size": f.size} for f in group] for group in groups]
         self.state_data.duplicate_scan_at = datetime.now(timezone.utc).isoformat()
-        self.state_data.junk_entries = junk_entries
         self.state_data.junk_scan_at = self.state_data.duplicate_scan_at
+
+        # A junk item with nothing in it (SABnzbd created the folder
+        # but never wrote any real data before dying, or a truly
+        # zero-byte stray archive fragment) can't cost you anything by
+        # removing it — no media content is at risk — so this is the
+        # one case in the whole add-on where a delete happens without a
+        # button press. Anything with real bytes in it still needs one.
+        auto_delete_now, remaining_junk = [], []
+        for e in junk_entries:
+            (auto_delete_now if e["size"] == 0 else remaining_junk).append(e)
+
+        auto_deleted = []
+        if auto_delete_now and self.cfg.dry_run:
+            self._log_event(f"[dry_run] Would auto-delete {len(auto_delete_now)} empty junk item(s).")
+            remaining_junk.extend(auto_delete_now)
+        elif auto_delete_now:
+            for e in auto_delete_now:
+                try:
+                    if e["is_dir"]:
+                        shutil.rmtree(e["path"])
+                    else:
+                        os.remove(e["path"])
+                except OSError as exc:
+                    self._log_event(f"Could not auto-delete empty junk {e['path']!r}: {exc}", level="warn")
+                    remaining_junk.append(e)
+                    continue
+                self._cleanup_empty_dirs(e["path"])
+                auto_deleted.append(e)
+
+        self.state_data.junk_entries = remaining_junk
+        if auto_deleted:
+            self._log_event(f"Auto-deleted {len(auto_deleted)} empty leftover-unpack item(s) "
+                             "(0 bytes — nothing to lose).")
+            try:
+                self.jellyfin.refresh_library()
+            except JellyfinError as exc:
+                self._log_event(f"Jellyfin library refresh after junk auto-delete failed: {exc}",
+                                 level="warn")
 
         try:
             tracked_basenames = self._all_tracked_media_basenames()
@@ -834,9 +902,9 @@ class Yarr(hass.Hass):
                              f"(~{wasted_gb:.1f} GB) — review in the web UI.")
         else:
             self._log_event("Media scan: no duplicates found.")
-        if junk_entries:
-            junk_gb = sum(e["size"] for e in junk_entries) / 1_000_000_000
-            self._log_event(f"Media scan: {len(junk_entries)} leftover unpack/junk item(s) found "
+        if remaining_junk:
+            junk_gb = sum(e["size"] for e in remaining_junk) / 1_000_000_000
+            self._log_event(f"Media scan: {len(remaining_junk)} leftover unpack/junk item(s) found "
                              f"(~{junk_gb:.1f} GB) — review in the web UI.")
         self.publish_status({})
 
@@ -1051,6 +1119,51 @@ class Yarr(hass.Hass):
             self.jellyfin.refresh_library()
         except JellyfinError as exc:
             self._log_event(f"Jellyfin library refresh after junk delete failed: {exc}", level="warn")
+
+        self.publish_status({})
+
+    def on_bulk_delete_junk_pressed(self, event_name, data, kwargs):
+        """Deletes every junk item the last scan reported, in one pass.
+        Unlike bulk duplicate delete there's no ambiguity to resolve —
+        a junk entry is unambiguously junk by definition (name pattern
+        plus old enough to not be an active unpack) — so this just
+        clears out everything currently listed."""
+        if not self.cfg.media_scan_enabled:
+            return
+        entries = list(self.state_data.junk_entries)
+        if not entries:
+            self.publish_status({})
+            return
+        if self.cfg.dry_run:
+            self._log_event(f"[dry_run] Would bulk-delete {len(entries)} junk item(s).")
+            self.publish_status({})
+            return
+
+        deleted = []
+        remaining = []
+        for e in entries:
+            try:
+                if e["is_dir"]:
+                    shutil.rmtree(e["path"])
+                else:
+                    os.remove(e["path"])
+            except OSError as exc:
+                self._log_event(f"Could not delete {e['path']!r}: {exc}", level="error")
+                remaining.append(e)
+                continue
+            self._cleanup_empty_dirs(e["path"])
+            deleted.append(e)
+
+        self.state_data.junk_entries = remaining
+        freed_gb = sum(e["size"] for e in deleted) / 1_000_000_000
+        self._log_event(f"Bulk junk cleanup: deleted {len(deleted)} item(s) (~{freed_gb:.1f} GB freed).")
+
+        if deleted:
+            try:
+                self.jellyfin.refresh_library()
+            except JellyfinError as exc:
+                self._log_event(f"Jellyfin library refresh after bulk junk delete failed: {exc}",
+                                 level="warn")
 
         self.publish_status({})
 

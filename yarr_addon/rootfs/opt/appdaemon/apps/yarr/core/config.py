@@ -100,6 +100,14 @@ class YarrConfig:
     media_scan_min_size_mb: float = 50.0
     media_scan_interval_hours: float = 24.0
 
+    # Failed-unpack/junk detection (same scan pass, see core/junk.py) —
+    # an _UNPACK_/_FAILED_ folder or stray archive piece is only ever
+    # reported (or auto-deleted, if empty) once it hasn't been modified
+    # for this long. Without this, a folder SABnzbd is actively
+    # extracting into right now — which looks identical to an
+    # abandoned one at a glance — could get deleted mid-extraction.
+    junk_min_age_hours: float = 1.0
+
     # --- addon_secrets.json (config.yaml options — never in apps.yaml) ---
     radarr_url: str = ""
     radarr_api_key: str = ""
@@ -197,6 +205,7 @@ def build_config(apps_yaml_dict: dict, secrets_dict: dict) -> YarrConfig:
         media_scan_paths=media_scan_paths,
         media_scan_min_size_mb=float(a.get("media_scan_min_size_mb", 50.0)),
         media_scan_interval_hours=float(a.get("media_scan_interval_hours", 24.0)),
+        junk_min_age_hours=float(a.get("junk_min_age_hours", 1.0)),
 
         radarr_url=str(s.get("radarr_url", "")),
         radarr_api_key=str(s.get("radarr_api_key", "")),

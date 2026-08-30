@@ -123,18 +123,29 @@ yarr:
   # each extra page costs a few more TMDB API calls per discovery tick.
   tmdb_pages: 3
 
-  # --- Duplicate media scan (optional) — needs HA's own /media share
+  # --- Media cleanup scan (optional) — needs HA's own /media share
   # pointed at your NAS first (Settings → System → Storage → Add
-  # Network Storage, Usage: Media) and the read-only `media` map entry
-  # in config.yaml (already there). Leave media_scan_paths empty to
-  # disable this entirely — it's off by default. Report-only: yArr
-  # never deletes anything it finds here, only lists candidate groups
-  # in the web UI for you to review and act on yourself.
+  # Network Storage, Usage: Media) and the writable `media` map entry
+  # in config.yaml (already there — write access is needed for the
+  # Cleanup tab's delete buttons). Leave media_scan_paths empty to
+  # disable this entirely — it's off by default. Finds duplicate files
+  # (by exact size) and leftover SABnzbd unpack junk in the same
+  # filesystem pass; see DOCS.md for what gets deleted automatically
+  # vs. what needs a button press.
   media_scan_paths: []
   #   - /media/movies
   #   - /media/tv
   media_scan_min_size_mb: 50
   media_scan_interval_hours: 24
+
+  # A leftover _UNPACK_/_FAILED_ folder or stray archive piece is only
+  # ever touched once it hasn't been modified for this long — without
+  # this, a folder SABnzbd is actively extracting into right now (which
+  # looks identical to an abandoned one at a glance) could get deleted
+  # mid-extraction. Empty (0-byte) junk older than this is deleted
+  # automatically on every scan; anything with real data in it still
+  # needs a button press in the Cleanup tab.
+  junk_min_age_hours: 1
 
   # If true, discovery/surprise picks are computed and logged but never
   # actually added to Radarr/Sonarr — useful for checking your genre/
