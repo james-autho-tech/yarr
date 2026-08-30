@@ -71,3 +71,27 @@ jobs:
           esprima.parseScript(js)
           print('Web UI JS syntax OK')
           "
+
+  webui-smoke:
+    name: Web UI browser smoke test (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          pip install pytest playwright
+          python3 -m playwright install --with-deps chromium
+      - name: Load the actual generated page in headless Chromium and
+          click every action button
+        # Neither pytest's core/ suite nor the esprima syntax check
+        # above executes webui.py's JS in a real engine — both of the
+        # real regressions that shipped (a broken onclick from a
+        # JSON-stringified path colliding with its own attribute
+        # quotes; a nested-quote JS syntax error that killed the whole
+        # <script> block) were runtime/DOM failures that only a real
+        # browser would catch. This loads the page with fixture data
+        # and clicks every button, asserting nothing throws.
+        run: python3 -m pytest yarr_addon/tests/test_webui_smoke.py -v
