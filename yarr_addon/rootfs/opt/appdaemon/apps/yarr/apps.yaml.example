@@ -7,6 +7,14 @@
 # the whole app — see the run script's self-heal). Use this add-on's
 # Configuration tab instead: it's the only place a Radarr/Sonarr/
 # Jellyfin/TMDB/SABnzbd key is actually masked and stored safely.
+#
+# dry_run, surprise_enabled, tv_surprise_enabled,
+# surprise_requires_approval, and learn_genres_from_library are now
+# live toggles in the web UI's Settings tab instead of apps.yaml-only
+# settings — the values below only ever seed the toggle's state the
+# FIRST time the add-on creates it (so upgrading doesn't silently
+# change your current behaviour). Once created, editing the value here
+# does nothing — flip it in the Settings tab instead.
 # =====================================================================
 
 yarr:

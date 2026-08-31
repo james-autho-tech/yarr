@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.16.0
+
+- Added a **Settings** tab: `dry_run`, `surprise_enabled`,
+  `tv_surprise_enabled`, `surprise_requires_approval`, and
+  `learn_genres_from_library` are now live toggles in the web UI
+  instead of apps.yaml-only settings — flip one and it takes effect
+  immediately, no file edit or restart. Same mechanism as the existing
+  "yArr Engine" master switch and "Keep It" buttons (an AppDaemon-owned
+  virtual `input_boolean`, not a real HA helper). `apps.yaml` still has
+  entries for all five, but they only ever seed the toggle's value the
+  first time it's created — upgrading to this version won't silently
+  change anyone's current behaviour, and editing apps.yaml after that
+  point does nothing for these five; the toggle is the sole source of
+  truth from then on.
+
 ## 0.15.0
 
 - `learn_genres_from_library` now blends **two** taste signals instead

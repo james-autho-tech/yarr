@@ -37,6 +37,10 @@ monitoring — bundling its own AppDaemon runtime.
   full library is off by default (`allow_library_delete: true` to
   enable it) since it can remove something you've had for years,
   unlike every other delete in yArr.
+- **Settings tab**: dry run, both surprise on/off switches, Accept/Deny
+  approval, and "learn genres from library" are live toggles in the
+  web UI — flip them and they take effect immediately, no apps.yaml
+  edit or restart needed.
 - **SABnzbd monitoring (optional)**: read-only queue status (speed,
   ETA, active downloads) as an HA sensor and a web UI card — yArr never
   queues, pauses, or cancels anything in SABnzbd itself.

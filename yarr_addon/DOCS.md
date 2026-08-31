@@ -51,6 +51,27 @@ Configuration tab (credentials):
    touches your regular library or the genre auto-adds — only titles
    yArr itself added and tagged.
 
+## Settings tab (live toggles, no restart)
+
+Five behaviour switches live as toggles in the web UI's **Settings**
+tab instead of `apps.yaml`: `dry_run`, `surprise_enabled`,
+`tv_surprise_enabled`, `surprise_requires_approval`, and
+`learn_genres_from_library`. Flipping one takes effect immediately —
+no file edit, no restart. They're implemented the same way as the
+existing "yArr Engine" master switch and the "Keep It" buttons:
+AppDaemon-owned virtual `input_boolean` states, not real Home
+Assistant helpers (see the note on `ha_support.yaml` in item 5 above
+for why), set via HA's raw state-set endpoint from the web UI.
+
+`apps.yaml` still has entries for all five — they only ever seed the
+toggle's value the *first* time the add-on creates it (so upgrading to
+this version doesn't silently change anyone's existing behaviour).
+Once a toggle exists, its apps.yaml value is never read again; change
+it in the Settings tab instead. Everything else — root folders,
+quality profiles, genre lists, thresholds, credentials — still lives
+in `apps.yaml`/the Configuration tab exactly as before; only these
+five day-to-day behaviour switches moved.
+
 ## TMDB setup
 
 1. Create a free account at themoviedb.org, then generate an API key
@@ -79,9 +100,10 @@ dropped Language Profiles entirely.
 
 ## Learning your taste instead of a genre list (optional)
 
-Set `learn_genres_from_library: true` in `apps.yaml` to have yArr
-derive `genres`/`tv_genres` instead of using the hand-typed lists,
-blending two signals:
+Turn on **Learn genres from library** in the web UI's Settings tab
+(see above — no restart needed) to have yArr derive `genres`/
+`tv_genres` instead of using the hand-typed lists, blending two
+signals:
 
 - **What Jellyfin says you've actually watched** — every watched/
   favourited item's genres, scored (base weight 1, +0.1 per replay, +3

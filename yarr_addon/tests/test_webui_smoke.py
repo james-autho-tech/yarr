@@ -46,7 +46,6 @@ import webui  # noqa: E402
 
 BASE_STATUS_ATTRS = {
     "missing_secrets": [],
-    "learn_genres_from_library": False,
     "excluded_genres": ["horror"],
     "denied_genres": [],
     "effective_genres": ["action", "comedy"],
@@ -57,7 +56,6 @@ BASE_STATUS_ATTRS = {
     "recent_suggested": [{"title": "Some Film", "year": 2020, "decision": "added"}],
     "surprises": [{"id": 123, "title": "Surprise Film", "year": 2019,
                    "status": "deleting_soon", "delete_at": "2026-09-01T00:00:00+00:00"}],
-    "surprise_requires_approval": True,
     "pending_surprise": None,
     "tv_enabled": True,
     "suggested_shows_count": 2,
@@ -134,6 +132,11 @@ class FakeBackend:
             "input_boolean.yarr_enable": {"state": "on"},
             "input_boolean.yarr_keep_surprise": {"state": "off"},
             "input_boolean.yarr_keep_surprise_tv": {"state": "off"},
+            "input_boolean.yarr_dry_run": {"state": "off"},
+            "input_boolean.yarr_surprise_enabled": {"state": "on"},
+            "input_boolean.yarr_tv_surprise_enabled": {"state": "on"},
+            "input_boolean.yarr_surprise_requires_approval": {"state": "on"},
+            "input_boolean.yarr_learn_genres_from_library": {"state": "off"},
         }
 
     def fire_event(self, event_type, data=None):
@@ -179,7 +182,7 @@ def test_page_loads_all_tabs_no_errors(browser_page):
     try:
         page.goto(f"http://127.0.0.1:{port}/")
         page.wait_for_selector("#library-search-input")
-        for tab in ["Library", "Movies", "TV", "SABnzbd", "Cleanup", "Log"]:
+        for tab in ["Library", "Movies", "TV", "SABnzbd", "Cleanup", "Settings", "Log"]:
             page.click(f"button.tab-btn:has-text('{tab}')")
         assert errors == []
     finally:
@@ -306,6 +309,35 @@ def test_library_detail_modal_opens_and_closes(browser_page):
         assert "show" not in (modal.get_attribute("class") or "")
 
         assert errors == []
+    finally:
+        httpd.shutdown()
+
+
+def test_settings_toggles_fire_and_do_not_crash(browser_page):
+    page, errors = browser_page
+    backend = FakeBackend()
+    httpd, port = start_server(backend)
+    try:
+        page.goto(f"http://127.0.0.1:{port}/")
+        page.wait_for_selector("#library-search-input")
+        page.click("button.tab-btn:has-text('Settings')")
+        settings = page.locator("#settings-section")
+
+        settings.locator(".settings-row", has_text="Dry run").get_by_role(
+            "button", name="On", exact=True).click()
+        page.wait_for_timeout(1200)
+        settings.locator(".settings-row", has_text="Learn genres from library").get_by_role(
+            "button", name="On", exact=True).click()
+        page.wait_for_timeout(1200)
+        settings.locator(".settings-row", has_text="Surprises need Accept/Deny").get_by_role(
+            "button", name="Off", exact=True).click()
+        page.wait_for_timeout(1200)
+
+        assert errors == []
+        fired_names = [e for e, _ in backend.fired]
+        assert "set_state:input_boolean.yarr_dry_run" in fired_names
+        assert "set_state:input_boolean.yarr_learn_genres_from_library" in fired_names
+        assert "set_state:input_boolean.yarr_surprise_requires_approval" in fired_names
     finally:
         httpd.shutdown()
 

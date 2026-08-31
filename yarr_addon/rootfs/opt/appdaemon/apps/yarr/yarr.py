@@ -124,19 +124,59 @@ class Yarr(hass.Hass):
     def _enabled(self) -> bool:
         return self.get_state("input_boolean.yarr_enable") != "off"
 
+    def _dry_run(self) -> bool:
+        return self.get_state("input_boolean.yarr_dry_run") == "on"
+
+    def _surprise_enabled(self) -> bool:
+        return self.get_state("input_boolean.yarr_surprise_enabled") == "on"
+
+    def _tv_surprise_enabled(self) -> bool:
+        return self.get_state("input_boolean.yarr_tv_surprise_enabled") == "on"
+
+    def _surprise_requires_approval(self) -> bool:
+        return self.get_state("input_boolean.yarr_surprise_requires_approval") == "on"
+
+    def _learn_genres_from_library(self) -> bool:
+        return self.get_state("input_boolean.yarr_learn_genres_from_library") == "on"
+
     def _ensure_boolean_states(self):
-        """Creates the three toggle states yArr uses if they don't
-        already exist, so they survive an AppDaemon restart without
-        being reset — these are AppDaemon-owned virtual states, not
-        real input_boolean helpers (see the run script's comment on
-        why), so the web UI sets them via HA's raw /api/states/<id>
-        endpoint rather than an input_boolean service call."""
+        """Creates the toggle states yArr uses if they don't already
+        exist, so they survive an AppDaemon restart without being
+        reset — these are AppDaemon-owned virtual states, not real
+        input_boolean helpers (see the run script's comment on why),
+        so the web UI sets them via HA's raw /api/states/<id> endpoint
+        rather than an input_boolean service call.
+
+        dry_run/surprise_enabled/tv_surprise_enabled/
+        surprise_requires_approval/learn_genres_from_library used to be
+        apps.yaml-only settings requiring a file edit + restart to
+        change — now live toggles in the web UI's Settings tab instead,
+        seeded from whatever apps.yaml currently says the FIRST time
+        each is created, so upgrading doesn't silently change anyone's
+        existing behaviour. After that first creation, apps.yaml's
+        value for these five is never consulted again — the toggle is
+        the sole source of truth, exactly like yarr_enable already is."""
         defaults = {
             "input_boolean.yarr_enable": ("on", "yArr Engine Master Switch", "mdi:movie-open-play"),
             "input_boolean.yarr_keep_surprise": (
                 "off", "yArr: Keep the pending surprise film", "mdi:heart"),
             "input_boolean.yarr_keep_surprise_tv": (
                 "off", "yArr: Keep the pending surprise show", "mdi:heart"),
+            "input_boolean.yarr_dry_run": (
+                "on" if self.cfg.dry_run else "off",
+                "yArr: Dry run (log only, no real adds/deletes)", "mdi:test-tube"),
+            "input_boolean.yarr_surprise_enabled": (
+                "on" if self.cfg.surprise_enabled else "off",
+                "yArr: Surprise me (movies)", "mdi:dice-5-outline"),
+            "input_boolean.yarr_tv_surprise_enabled": (
+                "on" if self.cfg.tv_surprise_enabled else "off",
+                "yArr: Surprise me (TV)", "mdi:dice-5-outline"),
+            "input_boolean.yarr_surprise_requires_approval": (
+                "on" if self.cfg.surprise_requires_approval else "off",
+                "yArr: Surprises need Accept/Deny", "mdi:check-decagram-outline"),
+            "input_boolean.yarr_learn_genres_from_library": (
+                "on" if self.cfg.learn_genres_from_library else "off",
+                "yArr: Learn genres from library", "mdi:brain"),
         }
         for entity_id, (default_state, name, icon) in defaults.items():
             if not self.entity_exists(entity_id):
@@ -179,12 +219,12 @@ class Yarr(hass.Hass):
         return self._jellyfin_user_id
 
     def _effective_genres(self):
-        if self.cfg.learn_genres_from_library and self.state_data.learned_genres:
+        if self._learn_genres_from_library() and self.state_data.learned_genres:
             return self.state_data.learned_genres
         return self.cfg.genres
 
     def _effective_tv_genres(self):
-        if self.cfg.learn_genres_from_library and self.state_data.learned_tv_genres:
+        if self._learn_genres_from_library() and self.state_data.learned_tv_genres:
             return self.state_data.learned_tv_genres
         return self.cfg.tv_genres
 
@@ -214,7 +254,7 @@ class Yarr(hass.Hass):
             self.state_data.watched_tvdb_cache = list(self.jellyfin.get_watched_tvdb_ids(user_id))
         self.state_data.watched_cache_synced_at = now.isoformat()
 
-        if self.cfg.learn_genres_from_library:
+        if self._learn_genres_from_library():
             # Blends two signals: what Jellyfin says you've actually
             # watched (real play_count/favourite weighting) and what's
             # sitting in your full Radarr/Sonarr library at all (the
@@ -265,7 +305,7 @@ class Yarr(hass.Hass):
 
         for c in picks:
             radarr_movie_id = None
-            if not self.cfg.dry_run:
+            if not self._dry_run():
                 try:
                     qp_id = self.radarr.resolve_quality_profile_id(self.cfg.radarr_quality_profile_name)
                     radarr_movie_id = self.radarr.add_movie(
@@ -291,7 +331,7 @@ class Yarr(hass.Hass):
         self.publish_status({})
 
     def tick_surprise_check(self, kwargs):
-        if not self._enabled() or not self.cfg.surprise_enabled:
+        if not self._enabled() or not self._surprise_enabled():
             return
         now = datetime.now(timezone.utc)
         if not core_surprise.is_surprise_due(now, self.state_data.next_surprise_at):
@@ -301,7 +341,7 @@ class Yarr(hass.Hass):
     def _run_surprise_pick(self):
         if self.missing_secrets:
             return
-        if self.cfg.surprise_requires_approval and self.state_data.pending_surprise is not None:
+        if self._surprise_requires_approval() and self.state_data.pending_surprise is not None:
             self._log_event("A surprise proposal is already awaiting accept/deny — skipping.")
             return
         now = datetime.now(timezone.utc)
@@ -331,7 +371,7 @@ class Yarr(hass.Hass):
             self._log_event("No surprise candidate matched your filters this time.")
             return
 
-        if self.cfg.surprise_requires_approval:
+        if self._surprise_requires_approval():
             proposal = core_state.PendingSurprise(
                 tmdb_id=pick.tmdb_id, imdb_id=pick.imdb_id, title=pick.title, year=pick.year,
                 genres=list(pick.genres), rating=pick.rating, proposed_at=now.isoformat())
@@ -352,7 +392,7 @@ class Yarr(hass.Hass):
         record_surprise_added() need."""
         radarr_movie_id = None
         imdb_id = pick.imdb_id
-        if not self.cfg.dry_run:
+        if not self._dry_run():
             try:
                 qp_id = self.radarr.resolve_quality_profile_id(self.cfg.radarr_quality_profile_name)
                 tag_id = self.radarr.ensure_tag(self.cfg.surprise_tag)
@@ -411,7 +451,7 @@ class Yarr(hass.Hass):
         film = self.state_data.surprises.get(str(tmdb_id))
         if film is None:
             return
-        if not self.cfg.dry_run and film.radarr_movie_id is not None:
+        if not self._dry_run() and film.radarr_movie_id is not None:
             try:
                 self.radarr.delete_movie(film.radarr_movie_id)
             except RadarrError as exc:
@@ -456,7 +496,7 @@ class Yarr(hass.Hass):
 
         for c in picks:
             sonarr_series_id = None
-            if not self.cfg.dry_run:
+            if not self._dry_run():
                 try:
                     qp_id = self.sonarr.resolve_quality_profile_id(self.cfg.sonarr_quality_profile_name)
                     sonarr_series_id = self.sonarr.add_series(
@@ -480,7 +520,7 @@ class Yarr(hass.Hass):
         self.publish_status({})
 
     def tick_tv_surprise_check(self, kwargs):
-        if not self._enabled() or not self.cfg.tv_surprise_enabled:
+        if not self._enabled() or not self._tv_surprise_enabled():
             return
         now = datetime.now(timezone.utc)
         if not core_surprise.is_surprise_due(now, self.state_data.next_tv_surprise_at):
@@ -490,7 +530,7 @@ class Yarr(hass.Hass):
     def _run_tv_surprise_pick(self):
         if self.missing_secrets or not self.cfg.tv_enabled:
             return
-        if self.cfg.surprise_requires_approval and self.state_data.pending_tv_surprise is not None:
+        if self._surprise_requires_approval() and self.state_data.pending_tv_surprise is not None:
             self._log_event("A TV surprise proposal is already awaiting accept/deny — skipping.")
             return
         now = datetime.now(timezone.utc)
@@ -521,7 +561,7 @@ class Yarr(hass.Hass):
             self._log_event("No TV surprise candidate matched your filters this time.")
             return
 
-        if self.cfg.surprise_requires_approval:
+        if self._surprise_requires_approval():
             proposal = core_state.PendingSurprise(
                 tmdb_id=pick.tmdb_id, tvdb_id=pick.tvdb_id, imdb_id=pick.imdb_id, title=pick.title,
                 year=pick.year, genres=list(pick.genres), rating=pick.rating, proposed_at=now.isoformat())
@@ -541,7 +581,7 @@ class Yarr(hass.Hass):
         carry the tvdb_id/tmdb_id/title/year/imdb_id fields
         add_series()/record_surprise_show_added() need."""
         sonarr_series_id = None
-        if not self.cfg.dry_run:
+        if not self._dry_run():
             try:
                 qp_id = self.sonarr.resolve_quality_profile_id(self.cfg.sonarr_quality_profile_name)
                 tag_id = self.sonarr.ensure_tag(self.cfg.tv_surprise_tag)
@@ -588,7 +628,7 @@ class Yarr(hass.Hass):
         show = self.state_data.surprises_shows.get(str(tvdb_id))
         if show is None:
             return
-        if not self.cfg.dry_run and show.sonarr_series_id is not None:
+        if not self._dry_run() and show.sonarr_series_id is not None:
             try:
                 self.sonarr.delete_series(show.sonarr_series_id)
             except SonarrError as exc:
@@ -680,7 +720,7 @@ class Yarr(hass.Hass):
                     self.state_data = core_state.cancel_deletion(self.state_data, film.tmdb_id)
                     self._log_event(f"Kept {film.title!r} — deletion cancelled.")
                     continue
-                if not self.cfg.dry_run and film.radarr_movie_id is not None:
+                if not self._dry_run() and film.radarr_movie_id is not None:
                     try:
                         self.radarr.delete_movie(film.radarr_movie_id)
                     except RadarrError as exc:
@@ -704,7 +744,7 @@ class Yarr(hass.Hass):
                         self.state_data = core_state.cancel_show_deletion(self.state_data, show.tvdb_id)
                         self._log_event(f"Kept {show.title!r} — deletion cancelled.")
                         continue
-                    if not self.cfg.dry_run and show.sonarr_series_id is not None:
+                    if not self._dry_run() and show.sonarr_series_id is not None:
                         try:
                             self.sonarr.delete_series(show.sonarr_series_id)
                         except SonarrError as exc:
@@ -929,7 +969,7 @@ class Yarr(hass.Hass):
             (auto_delete_now if e["size"] == 0 else remaining_junk).append(e)
 
         auto_deleted = []
-        if auto_delete_now and self.cfg.dry_run:
+        if auto_delete_now and self._dry_run():
             self._log_event(f"[dry_run] Would auto-delete {len(auto_delete_now)} empty junk item(s).")
             remaining_junk.extend(auto_delete_now)
         elif auto_delete_now:
@@ -1003,7 +1043,7 @@ class Yarr(hass.Hass):
             for group in self.state_data.duplicate_groups]
         total_to_delete = sum(len(d) for _, d in to_delete_by_group)
 
-        if self.cfg.dry_run:
+        if self._dry_run():
             self._log_event(f"[dry_run] Would bulk-delete {total_to_delete} duplicate file(s).")
             self.publish_status({})
             return
@@ -1114,7 +1154,7 @@ class Yarr(hass.Hass):
                              level="error")
             self.publish_status({})
             return
-        if self.cfg.dry_run:
+        if self._dry_run():
             self._log_event(f"[dry_run] Would delete duplicate file: {path!r}.")
             self.publish_status({})
             return
@@ -1170,7 +1210,7 @@ class Yarr(hass.Hass):
             self._log_event(f"Refused to delete {path!r} — not part of the last scan.", level="error")
             self.publish_status({})
             return
-        if self.cfg.dry_run:
+        if self._dry_run():
             self._log_event(f"[dry_run] Would delete junk {'folder' if entry['is_dir'] else 'file'}: "
                              f"{path!r}.")
             self.publish_status({})
@@ -1208,7 +1248,7 @@ class Yarr(hass.Hass):
         if not entries:
             self.publish_status({})
             return
-        if self.cfg.dry_run:
+        if self._dry_run():
             self._log_event(f"[dry_run] Would bulk-delete {len(entries)} junk item(s).")
             self.publish_status({})
             return
@@ -1320,7 +1360,7 @@ class Yarr(hass.Hass):
             return
 
         radarr_movie_id = None
-        if not self.cfg.dry_run:
+        if not self._dry_run():
             try:
                 qp_id = self.radarr.resolve_quality_profile_id(self.cfg.radarr_quality_profile_name)
                 candidate = core_discovery.Candidate(
@@ -1362,7 +1402,7 @@ class Yarr(hass.Hass):
             return
 
         sonarr_series_id = None
-        if not self.cfg.dry_run:
+        if not self._dry_run():
             try:
                 qp_id = self.sonarr.resolve_quality_profile_id(self.cfg.sonarr_quality_profile_name)
                 candidate = core_discovery.TVCandidate(
@@ -1411,7 +1451,7 @@ class Yarr(hass.Hass):
                              "last library listing.", level="error")
             self.publish_status({})
             return
-        if self.cfg.dry_run:
+        if self._dry_run():
             self._log_event(f"[dry_run] Would permanently delete {item['title']!r} from the library.")
             self.publish_status({})
             return
@@ -1442,7 +1482,7 @@ class Yarr(hass.Hass):
                              "last library listing.", level="error")
             self.publish_status({})
             return
-        if self.cfg.dry_run:
+        if self._dry_run():
             self._log_event(f"[dry_run] Would permanently delete {item['title']!r} from the library.")
             self.publish_status({})
             return
@@ -1520,14 +1560,12 @@ class Yarr(hass.Hass):
             "tv_enabled": self.cfg.tv_enabled,
             "sabnzbd_enabled": self.cfg.sabnzbd_enabled,
             "media_scan_enabled": self.cfg.media_scan_enabled,
-            "learn_genres_from_library": self.cfg.learn_genres_from_library,
             "excluded_genres": self.cfg.excluded_genres,
             "denied_genres": self._denied_genres(),
             "effective_genres": self._effective_genres(),
             "learned_genres": self.state_data.learned_genres,
             "recent_suggested": self._recent_suggested(self.state_data.suggested),
             "surprises": self._surprise_rows(self.state_data.surprises, id_field="tmdb_id"),
-            "surprise_requires_approval": self.cfg.surprise_requires_approval,
             "pending_surprise": self._pending_row(self.state_data.pending_surprise),
             "log": list(reversed(self.state_data.event_log[-30:])),
             # Library tab — always published (not gated on an opt-in

@@ -13,6 +13,22 @@ import urllib.request
 SUPERVISOR_TOKEN = os.environ["SUPERVISOR_TOKEN"]
 PORT = 8100
 
+# Settings tab toggles — a fixed, validated allow-list of short client-
+# facing names to real entity_ids, rather than letting the client name
+# an arbitrary entity_id to write to via ha_set_state directly.
+TOGGLE_SETTINGS = {
+    "dry-run": ("input_boolean.yarr_dry_run",
+                "yArr: Dry run (log only, no real adds/deletes)", "mdi:test-tube"),
+    "surprise-enabled": ("input_boolean.yarr_surprise_enabled",
+                          "yArr: Surprise me (movies)", "mdi:dice-5-outline"),
+    "tv-surprise-enabled": ("input_boolean.yarr_tv_surprise_enabled",
+                             "yArr: Surprise me (TV)", "mdi:dice-5-outline"),
+    "surprise-requires-approval": ("input_boolean.yarr_surprise_requires_approval",
+                                    "yArr: Surprises need Accept/Deny", "mdi:check-decagram-outline"),
+    "learn-genres": ("input_boolean.yarr_learn_genres_from_library",
+                      "yArr: Learn genres from library", "mdi:brain"),
+}
+
 
 def ha_get_all_states():
     req = urllib.request.Request(
@@ -77,7 +93,21 @@ def build_status():
         "missing_secrets": attrs.get("missing_secrets", []),
         "enabled": is_on(states.get("input_boolean.yarr_enable")),
 
-        "learn_genres_from_library": attrs.get("learn_genres_from_library", False),
+        # These five used to be read from sensor.yarr_status's own
+        # attributes (like most other settings below) — moved to a
+        # direct entity-state read instead, because that sensor only
+        # gets republished by yarr.py itself (every 60s, or right after
+        # one of its own handlers runs). Flipping one of these toggles
+        # writes the entity directly (ha_set_state, no AppDaemon event
+        # involved at all — nothing to make it republish), so reading
+        # them from the sensor would show stale data for up to 60s
+        # after every flip. Same reasoning as keep_surprise below.
+        "dry_run": is_on(states.get("input_boolean.yarr_dry_run")),
+        "surprise_enabled": is_on(states.get("input_boolean.yarr_surprise_enabled")),
+        "tv_surprise_enabled": is_on(states.get("input_boolean.yarr_tv_surprise_enabled")),
+        "surprise_requires_approval": is_on(states.get("input_boolean.yarr_surprise_requires_approval")),
+        "learn_genres_from_library": is_on(states.get("input_boolean.yarr_learn_genres_from_library")),
+
         "excluded_genres": attrs.get("excluded_genres", []),
         "denied_genres": attrs.get("denied_genres", []),
         "effective_genres": attrs.get("effective_genres", []),
@@ -89,7 +119,6 @@ def build_status():
         "keep_surprise": is_on(states.get("input_boolean.yarr_keep_surprise")),
         "recent_suggested": attrs.get("recent_suggested", []),
         "surprises": attrs.get("surprises", []),
-        "surprise_requires_approval": attrs.get("surprise_requires_approval", True),
         "pending_surprise": attrs.get("pending_surprise"),
 
         "tv_enabled": attrs.get("tv_enabled", False),
@@ -211,6 +240,12 @@ input.text-input:focus{outline:none;border-color:var(--accent)}
 .pill-toggle button{background:transparent;color:var(--sub);border:none;border-radius:0;
       padding:11px 16px}
 .pill-toggle button.active{background:var(--accent);color:var(--accent-ink)}
+
+.settings-row{display:flex;align-items:center;justify-content:space-between;gap:20px;
+      padding:16px 0;border-bottom:1px solid var(--edge);flex-wrap:wrap}
+.settings-row:last-child{border-bottom:none}
+.settings-label{font-weight:700;font-size:14px;color:var(--ink)}
+.settings-desc{font-size:12px;color:var(--faint);margin-top:3px;max-width:480px;line-height:1.5}
 .badge{font-size:11px;padding:3px 10px;border-radius:4px;font-weight:800;letter-spacing:.02em;
       text-transform:uppercase;background:var(--ok);color:#06210e}
 
@@ -328,6 +363,7 @@ button.small-delete:disabled:hover{color:var(--faint);border-color:var(--edge)}
   <button class="tab-btn" data-tab="tv" id="nav-tv" style="display:none" onclick="selectTab('tv')">TV</button>
   <button class="tab-btn" data-tab="sabnzbd" id="nav-sabnzbd" style="display:none" onclick="selectTab('sabnzbd')">SABnzbd</button>
   <button class="tab-btn" data-tab="dupes" id="nav-dupes" style="display:none" onclick="selectTab('dupes')">Cleanup</button>
+  <button class="tab-btn" data-tab="settings" onclick="selectTab('settings')">Settings</button>
   <button class="tab-btn" data-tab="log" onclick="selectTab('log')">Log</button>
 </nav>
 <main>
@@ -367,6 +403,13 @@ button.small-delete:disabled:hover{color:var(--faint);border-color:var(--edge)}
   <section id="tv-section" class="tab-page" data-tab="tv"></section>
   <section id="sabnzbd-section" class="tab-page" data-tab="sabnzbd"></section>
   <section id="dupes-section" class="tab-page" data-tab="dupes"></section>
+  <section id="settings-section" class="tab-page" data-tab="settings">
+    <div class="section-head"><span class="section-title">Settings</span></div>
+    <div class="mode-line" style="margin-bottom:16px">These take effect immediately — no apps.yaml
+      edit or restart needed. Everything else (root folders, quality profiles, thresholds,
+      credentials) still lives in apps.yaml / the add-on's Configuration tab.</div>
+    <div id="settings-list"></div>
+  </section>
   <section id="log-section" class="tab-page" data-tab="log"></section>
 </main>
 <div id="toast" class="toast"></div>
@@ -466,6 +509,26 @@ function baseName(p){ const parts = String(p||'').split('/'); return parts[parts
 function chipsRow(list, cls) {
   if (!list || !list.length) return '<span class="section-note">none set</span>';
   return `<div class="chips">${list.map(g=>`<span class="chip ${cls||''}">${esc(g)}</span>`).join('')}</div>`;
+}
+function settingsRow(name, label, desc, on) {
+  return `<div class="settings-row">
+    <div>
+      <div class="settings-label">${esc(label)}</div>
+      <div class="settings-desc">${esc(desc)}</div>
+    </div>
+    <div class="pill-toggle">
+      <button class="${!on?'active':''}" onclick="setToggle(this,'${name}',false)">Off</button>
+      <button class="${on?'active':''}" onclick="setToggle(this,'${name}',true)">On</button>
+    </div>
+  </div>`;
+}
+function setToggle(btn, name, on) {
+  // Same reasoning as keep-surprise: this is a direct ha_set_state
+  // write with no AppDaemon event involved at all, so no new Log
+  // entry will ever appear for runAction's usual poll-and-wait to
+  // find — watchLog:false shows an instant "Done." instead of
+  // uselessly waiting ~9.6s before giving up.
+  runAction(btn, 'api/toggle-setting', {name, on}, {watchLog:false});
 }
 function statusPill(s){
   const labels = {pending_watch:'awaiting watch', watched:'watched', deleting_soon:'deleting soon'};
@@ -775,6 +838,23 @@ async function refresh() {
     `;
   }
 
+  document.getElementById('settings-list').innerHTML =
+    settingsRow('dry-run', 'Dry run',
+      'Genre auto-add, surprise picks, and duplicate/junk deletes are computed and logged but never actually written to Radarr/Sonarr/disk. Useful for checking behaviour before trusting it for real.',
+      d.dry_run)
+    + settingsRow('learn-genres', 'Learn genres from library',
+      'Derive the effective genre list from your Jellyfin watch history plus your full Radarr/Sonarr library, instead of the fixed genres/tv_genres lists in apps.yaml.',
+      d.learn_genres_from_library)
+    + settingsRow('surprise-enabled', 'Surprise me (movies)',
+      'Whether the automatic random surprise-movie rotation runs at all. The manual "Surprise Me Now" button on the Movies tab still works either way.',
+      d.surprise_enabled)
+    + (d.tv_enabled ? settingsRow('tv-surprise-enabled', 'Surprise me (TV)',
+      'Same as above, for the TV surprise rotation.',
+      d.tv_surprise_enabled) : '')
+    + settingsRow('surprise-requires-approval', 'Surprises need Accept/Deny',
+      'When on, a surprise pick is proposed in the web UI and never touches Radarr/Sonarr until you Accept it. When off, surprises are added immediately, same as genre auto-add.',
+      d.surprise_requires_approval);
+
   const log = d.log || [];
   document.getElementById('log-section').innerHTML = `
     <div class="section-head"><span class="section-title">Log</span>
@@ -837,6 +917,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 ha_set_state("input_boolean.yarr_keep_surprise_tv", "on",
                              {"friendly_name": "yArr: Keep the pending surprise show", "icon": "mdi:heart"})
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/toggle-setting"):
+                body = self._read_json_body()
+                entry = TOGGLE_SETTINGS.get(body.get("name"))
+                if entry is None:
+                    self._send(400, json.dumps({"error": "unknown setting"}).encode(), "application/json")
+                else:
+                    entity_id, friendly_name, icon = entry
+                    ha_set_state(entity_id, "on" if body.get("on") else "off",
+                                 {"friendly_name": friendly_name, "icon": icon})
+                    self._send(200, json.dumps({"ok": True}).encode(), "application/json")
             elif path.endswith("/api/accept-surprise"):
                 ha_fire_event("yarr_accept_surprise")
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")
