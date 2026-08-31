@@ -134,6 +134,25 @@ class JellyfinClient:
                     continue
         return out
 
+    def get_last_played(self, user_id: str, item_type: str) -> dict:
+        """item_type: "Movie" or "Series". -> {provider_id_str: last_played_iso}
+        for every played item — used to rank cycle-out candidates by how long
+        ago they were last watched (core/library.rank_cycle_candidates)."""
+        body = self._get(f"/Users/{user_id}/Items", {
+            "Recursive": "true",
+            "IncludeItemTypes": item_type,
+            "Filters": "IsPlayed",
+            "Fields": "ProviderIds,UserData",
+        })
+        provider_key = "Tmdb" if item_type == "Movie" else "Tvdb"
+        out = {}
+        for item in body.get("Items", []):
+            pid = item.get("ProviderIds", {}).get(provider_key)
+            last_played = item.get("UserData", {}).get("LastPlayedDate")
+            if pid and last_played:
+                out[str(pid)] = last_played
+        return out
+
     def get_watched_items_for_taste(self, user_id: str, item_type: str) -> list:
         """item_type: "Movie" or "Series". Returns core.taste.WatchedItem
         entries for every played item, genres/play-count/favourite as

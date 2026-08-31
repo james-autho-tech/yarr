@@ -67,6 +67,7 @@ class SonarrClient:
             "poster_url": _poster_url(s.get("images")),
             "genres": s.get("genres", []), "overview": s.get("overview", ""),
             "size": (s.get("statistics") or {}).get("sizeOnDisk", 0),
+            "added": s.get("added"),
         } for s in (series_list or []) if s.get("tvdbId")]
 
     def resolve_quality_profile_id(self, name: str) -> int:

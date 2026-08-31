@@ -165,6 +165,16 @@ class YarrState:
     library_shows: list = field(default_factory=list)
     library_synced_at: str = None
 
+    # Free Up Space: last disk-usage check + the ranked cycle-candidate
+    # lists it produced when usage crossed low_space_threshold_pct (see
+    # yarr.py's tick_check_space / core/library.rank_cycle_candidates).
+    # Empty lists mean either space is fine or no check has run yet.
+    cycle_candidates_movies: list = field(default_factory=list)
+    cycle_candidates_shows: list = field(default_factory=list)
+    cycle_check_at: str = None
+    disk_used_pct: float = None
+    disk_free_gb: float = None
+
     # Last TMDB text search (Library tab's request hub) — a plain list
     # of {"tmdb_id", "tvdb_id", "title", "year", "rating", "in_library"}
     # dicts (see core/library.mark_in_library). Adding a result is only
@@ -246,6 +256,11 @@ def load(path: str) -> YarrState:
         last_search_media_type=raw.get("last_search_media_type"),
         last_search_results=list(raw.get("last_search_results", [])),
         last_search_at=raw.get("last_search_at"),
+        cycle_candidates_movies=list(raw.get("cycle_candidates_movies", [])),
+        cycle_candidates_shows=list(raw.get("cycle_candidates_shows", [])),
+        cycle_check_at=raw.get("cycle_check_at"),
+        disk_used_pct=raw.get("disk_used_pct"),
+        disk_free_gb=raw.get("disk_free_gb"),
     )
 
 
@@ -284,6 +299,11 @@ def save(state: YarrState, path: str) -> None:
         "last_search_media_type": state.last_search_media_type,
         "last_search_results": state.last_search_results,
         "last_search_at": state.last_search_at,
+        "cycle_candidates_movies": state.cycle_candidates_movies,
+        "cycle_candidates_shows": state.cycle_candidates_shows,
+        "cycle_check_at": state.cycle_check_at,
+        "disk_used_pct": state.disk_used_pct,
+        "disk_free_gb": state.disk_free_gb,
     }
     try:
         with open(path, "w") as f:

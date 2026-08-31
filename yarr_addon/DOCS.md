@@ -252,6 +252,29 @@ title eligible for auto-add/surprise again immediately, no restart
 needed. There's no size cap or expiry; a blocked title stays blocked
 until you explicitly unblock it.
 
+## Freeing up space (optional)
+
+Opt-in via the same `media_scan_paths` flag as the Duplicates/Cleanup
+feature below — checking real disk usage needs that NAS mount to exist
+under `/media` regardless. Every `space_check_interval_hours` (default
+6h), yArr checks free space on the first configured `media_scan_paths`
+entry. Once usage crosses `low_space_threshold_pct` (default 90%), it
+ranks your library's least-recently-active titles and lists them in the
+web UI's **Library** tab, under **Free Up Space**, above Search &amp;
+Request — titles never watched (ranked by how long they've sat, using
+Radarr/Sonarr's own "added" date) and titles watched long ago (ranked
+by Jellyfin's last-played date) sort together on one timeline, oldest
+activity first.
+
+**This is purely a recommendation list — yArr never deletes anything
+here on its own.** Each candidate's Delete button is the exact same
+action as the rest of the Library tab (`allow_library_delete` must be
+enabled, and every delete still needs its own confirm) — this feature
+only adds the ranking and the disk-usage trigger, no new deletion path
+or blast radius. Press **Check Space Now** to check immediately instead
+of waiting for the next scheduled check; if usage drops back under the
+threshold, the candidate list clears itself automatically.
+
 ## SABnzbd monitoring (optional)
 
 Set `sabnzbd_url`/`sabnzbd_api_key` in the Configuration tab. Once both

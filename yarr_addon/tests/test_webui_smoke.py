@@ -87,6 +87,18 @@ BASE_STATUS_ATTRS = {
     "junk_count": 1,
     "junk_bytes": 1_500_000_000,
     "junk_scan_at": "2026-08-30T17:00:00+00:00",
+    "disk_used_pct": 92.0,
+    "disk_free_gb": 58.0,
+    "cycle_check_at": "2026-08-30T17:00:00+00:00",
+    "low_space_threshold_pct": 90.0,
+    "cycle_candidates_movies": [{"id": 3, "tmdb_id": 333, "title": "Stale Movie", "year": 2016,
+                                  "size": 2_000_000_000, "poster_url": None,
+                                  "never_watched": True, "last_played_at": None,
+                                  "last_activity": "2020-01-01T00:00:00+00:00"}],
+    "cycle_candidates_shows": [{"id": 4, "tvdb_id": 444, "title": "Stale Show", "year": 2015,
+                                 "size": 6_000_000_000, "poster_url": None,
+                                 "never_watched": False, "last_played_at": "2021-01-01T00:00:00+00:00",
+                                 "last_activity": "2021-01-01T00:00:00+00:00"}],
     "library_movies": [{"id": 1, "tmdb_id": 111, "title": "Existing Movie", "year": 2019,
                          "monitored": True, "size": 3_000_000_000,
                          "poster_url": "https://image.tmdb.org/t/p/w300/existing.jpg",
@@ -396,5 +408,30 @@ def test_blocked_tab_unblock_movie_and_show(browser_page):
         fired_names = [e for e, _ in backend.fired]
         assert "yarr_unblock_movie" in fired_names
         assert "yarr_unblock_show" in fired_names
+    finally:
+        httpd.shutdown()
+
+
+def test_free_up_space_check_and_delete_candidate(browser_page):
+    page, errors = browser_page
+    backend = FakeBackend()
+    httpd, port = start_server(backend)
+    try:
+        page.goto(f"http://127.0.0.1:{port}/")
+        page.wait_for_selector("#library-search-input")
+        page.click("button.tab-btn:has-text('Library')")
+        space = page.locator("#space-section")
+        page.wait_for_selector("text=Stale Movie")
+
+        space.get_by_role("button", name="Check Space Now", exact=True).click()
+        page.wait_for_timeout(1200)
+
+        space.get_by_role("button", name="Delete", exact=True).first.click()
+        page.wait_for_timeout(1200)
+
+        assert errors == []
+        fired_names = [e for e, _ in backend.fired]
+        assert "yarr_check_space_now" in fired_names
+        assert "yarr_library_delete_movie" in fired_names
     finally:
         httpd.shutdown()

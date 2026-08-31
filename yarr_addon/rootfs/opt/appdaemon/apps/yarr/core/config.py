@@ -116,6 +116,15 @@ class YarrConfig:
     library_refresh_interval_hours: float = 1.0
     allow_library_delete: bool = False
 
+    # Free Up Space: cycle-candidates review list (opt-in via the same
+    # media_scan_paths flag as the Duplicates/Cleanup tab, since checking
+    # real disk usage needs that NAS mount to exist under /media
+    # regardless). Recommend-only — see yarr.py's tick_check_space and
+    # core/library.rank_cycle_candidates; nothing is ever auto-deleted.
+    low_space_threshold_pct: float = 90.0
+    cycle_candidates_count: int = 20
+    space_check_interval_hours: float = 6.0
+
     # --- addon_secrets.json (config.yaml options — never in apps.yaml) ---
     radarr_url: str = ""
     radarr_api_key: str = ""
@@ -217,6 +226,10 @@ def build_config(apps_yaml_dict: dict, secrets_dict: dict) -> YarrConfig:
 
         library_refresh_interval_hours=float(a.get("library_refresh_interval_hours", 1.0)),
         allow_library_delete=bool(a.get("allow_library_delete", False)),
+
+        low_space_threshold_pct=float(a.get("low_space_threshold_pct", 90.0)),
+        cycle_candidates_count=int(a.get("cycle_candidates_count", 20)),
+        space_check_interval_hours=float(a.get("space_check_interval_hours", 6.0)),
 
         radarr_url=str(s.get("radarr_url", "")),
         radarr_api_key=str(s.get("radarr_api_key", "")),

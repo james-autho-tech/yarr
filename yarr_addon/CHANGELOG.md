@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.18.0
+
+- Added **Free Up Space** to the Library tab (opt-in via
+  `media_scan_paths`, same as the Duplicates/Cleanup feature): when
+  disk usage crosses `low_space_threshold_pct` (default 90%), yArr
+  ranks the least recently watched (or never watched) titles in your
+  library and lists them for review — oldest activity first. Purely a
+  recommendation list; deleting a candidate uses the exact same Delete
+  action (and `allow_library_delete` gate) as the rest of the Library
+  tab, no new deletion path. **Check Space Now** triggers an immediate
+  check.
+
 ## 0.17.0
 
 - Denying a proposed surprise now **blocks that exact title outright**,

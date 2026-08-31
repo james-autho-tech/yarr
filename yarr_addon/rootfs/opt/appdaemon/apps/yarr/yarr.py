@@ -84,6 +84,7 @@ class Yarr(hass.Hass):
             self.listen_event(self.on_bulk_delete_duplicates_pressed, "yarr_bulk_delete_duplicates")
             self.listen_event(self.on_delete_junk_entry, "yarr_delete_junk_entry")
             self.listen_event(self.on_bulk_delete_junk_pressed, "yarr_bulk_delete_junk")
+            self.listen_event(self.on_check_space_pressed, "yarr_check_space_now")
         self.listen_event(self.on_jellyfin_webhook, "yarr_jellyfin_webhook")
 
         # Library tab: full-library browse/manage + request hub —
@@ -111,6 +112,7 @@ class Yarr(hass.Hass):
             self.run_every(self.tick_sabnzbd_status, "now", 60)
         if self.cfg.media_scan_enabled:
             self.run_every(self.tick_scan_duplicates, "now", self.cfg.media_scan_interval_hours * 3600)
+            self.run_every(self.tick_check_space, "now", self.cfg.space_check_interval_hours * 3600)
         self.run_every(self.tick_refresh_library, "now", self.cfg.library_refresh_interval_hours * 3600)
         self.run_every(self.publish_status, "now", 60)
 
@@ -1344,6 +1346,61 @@ class Yarr(hass.Hass):
         self.tick_refresh_library({})
         self.publish_status({})
 
+    def tick_check_space(self, kwargs):
+        """Free Up Space: checks real disk usage on the media mount and,
+        only when it crosses low_space_threshold_pct, ranks the library's
+        least-recently-active titles as candidates for you to review and
+        delete yourself — never auto-deleted. Reuses library_movies/
+        library_shows as already refreshed by tick_refresh_library."""
+        if not self.cfg.media_scan_enabled or self.missing_secrets:
+            return
+        try:
+            usage = shutil.disk_usage(self.cfg.media_scan_paths[0])
+        except OSError as exc:
+            self._log_event(f"Disk space check failed: {exc}", level="error")
+            return
+        pct_used = (usage.used / usage.total) * 100 if usage.total else 0.0
+        free_gb = usage.free / 1_000_000_000
+        self.state_data.disk_used_pct = pct_used
+        self.state_data.disk_free_gb = free_gb
+        self.state_data.cycle_check_at = datetime.now(timezone.utc).isoformat()
+
+        if pct_used < self.cfg.low_space_threshold_pct:
+            if self.state_data.cycle_candidates_movies or self.state_data.cycle_candidates_shows:
+                self.state_data.cycle_candidates_movies = []
+                self.state_data.cycle_candidates_shows = []
+                self._log_event(f"NAS space healthy again ({pct_used:.0f}% used) — "
+                                 "cleared cycle candidates.")
+            self._save_state()
+            self.publish_status({})
+            return
+
+        try:
+            user_id = self._jellyfin_user()
+            last_played_movies = self.jellyfin.get_last_played(user_id, "Movie")
+            self.state_data.cycle_candidates_movies = core_library.rank_cycle_candidates(
+                self.state_data.library_movies, last_played_movies,
+                key="tmdb_id", limit=self.cfg.cycle_candidates_count)
+            if self.cfg.tv_enabled:
+                last_played_shows = self.jellyfin.get_last_played(user_id, "Series")
+                self.state_data.cycle_candidates_shows = core_library.rank_cycle_candidates(
+                    self.state_data.library_shows, last_played_shows,
+                    key="tvdb_id", limit=self.cfg.cycle_candidates_count)
+        except JellyfinError as exc:
+            self._log_event(f"Cycle-candidate ranking failed: {exc}", level="error")
+            self._save_state()
+            self.publish_status({})
+            return
+
+        n = len(self.state_data.cycle_candidates_movies) + len(self.state_data.cycle_candidates_shows)
+        self._log_event(f"NAS at {pct_used:.0f}% used ({free_gb:.0f}GB free) — {n} cycle "
+                         "candidate(s) ready for review in the Library tab.")
+        self._save_state()
+        self.publish_status({})
+
+    def on_check_space_pressed(self, event_name, data, kwargs):
+        self.tick_check_space({})
+
     def on_search_media(self, event_name, data, kwargs):
         """query/media_type come straight from the event payload — the
         one place in this feature trusting the raw payload is fine,
@@ -1657,6 +1714,12 @@ class Yarr(hass.Hass):
                 "junk_count": len(self.state_data.junk_entries),
                 "junk_bytes": sum(e["size"] for e in self.state_data.junk_entries),
                 "junk_scan_at": self.state_data.junk_scan_at,
+                "disk_used_pct": self.state_data.disk_used_pct,
+                "disk_free_gb": self.state_data.disk_free_gb,
+                "cycle_check_at": self.state_data.cycle_check_at,
+                "low_space_threshold_pct": self.cfg.low_space_threshold_pct,
+                "cycle_candidates_movies": self.state_data.cycle_candidates_movies,
+                "cycle_candidates_shows": self.state_data.cycle_candidates_shows,
             })
         self.set_state("sensor.yarr_status",
                         state="Not Configured" if self.missing_secrets else "OK",

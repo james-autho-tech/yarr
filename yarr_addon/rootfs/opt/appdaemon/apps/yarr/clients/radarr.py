@@ -69,6 +69,7 @@ class RadarrClient:
             "poster_url": _poster_url(m.get("images")),
             "genres": m.get("genres", []), "overview": m.get("overview", ""),
             "size": (m.get("movieFile") or {}).get("size", 0),
+            "added": m.get("added"),
         } for m in (movies or [])]
 
     def resolve_quality_profile_id(self, name: str) -> int:

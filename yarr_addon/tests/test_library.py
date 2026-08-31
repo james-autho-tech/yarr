@@ -1,5 +1,5 @@
 from core.discovery import Candidate, TVCandidate
-from core.library import mark_in_library, poster_url
+from core.library import mark_in_library, poster_url, rank_cycle_candidates
 
 
 def make(tmdb_id, rating=8.0, poster_path=None, genres=(), overview=None):
@@ -70,3 +70,58 @@ def test_mark_in_library_overview_defaults_to_empty_string():
     rows = mark_in_library([make(1)], library_ids=set())
     assert rows[0]["overview"] == ""
     assert rows[0]["genres"] == []
+
+
+def test_rank_cycle_candidates_never_watched_sorts_by_added_date_oldest_first():
+    items = [
+        {"tmdb_id": 1, "title": "Newer Add", "added": "2026-06-01T00:00:00Z"},
+        {"tmdb_id": 2, "title": "Older Add", "added": "2024-01-01T00:00:00Z"},
+    ]
+    rows = rank_cycle_candidates(items, last_played_by_id={})
+    assert [r["title"] for r in rows] == ["Older Add", "Newer Add"]
+    assert all(r["never_watched"] for r in rows)
+    assert all(r["last_played_at"] is None for r in rows)
+
+
+def test_rank_cycle_candidates_watched_sorts_by_last_played_oldest_first():
+    items = [
+        {"tmdb_id": 1, "title": "Watched Recently", "added": "2020-01-01T00:00:00Z"},
+        {"tmdb_id": 2, "title": "Watched Long Ago", "added": "2020-01-01T00:00:00Z"},
+    ]
+    last_played = {"1": "2026-06-01T00:00:00Z", "2": "2021-01-01T00:00:00Z"}
+    rows = rank_cycle_candidates(items, last_played_by_id=last_played)
+    assert [r["title"] for r in rows] == ["Watched Long Ago", "Watched Recently"]
+    assert all(r["never_watched"] is False for r in rows)
+
+
+def test_rank_cycle_candidates_mixes_never_watched_and_watched_on_one_timeline():
+    items = [
+        {"tmdb_id": 1, "title": "Watched 2023", "added": "2019-01-01T00:00:00Z"},
+        {"tmdb_id": 2, "title": "Never Watched, Added 2022", "added": "2022-01-01T00:00:00Z"},
+    ]
+    last_played = {"1": "2023-01-01T00:00:00Z"}
+    rows = rank_cycle_candidates(items, last_played_by_id=last_played)
+    assert [r["title"] for r in rows] == ["Never Watched, Added 2022", "Watched 2023"]
+
+
+def test_rank_cycle_candidates_missing_both_dates_sorts_last():
+    items = [
+        {"tmdb_id": 1, "title": "No Dates At All"},
+        {"tmdb_id": 2, "title": "Has Added Date", "added": "2020-01-01T00:00:00Z"},
+    ]
+    rows = rank_cycle_candidates(items, last_played_by_id={})
+    assert [r["title"] for r in rows] == ["Has Added Date", "No Dates At All"]
+
+
+def test_rank_cycle_candidates_respects_limit():
+    items = [{"tmdb_id": i, "title": f"Film {i}", "added": "2020-01-01T00:00:00Z"} for i in range(5)]
+    rows = rank_cycle_candidates(items, last_played_by_id={}, limit=2)
+    assert len(rows) == 2
+
+
+def test_rank_cycle_candidates_uses_tvdb_key_for_shows():
+    items = [{"tvdb_id": 1, "title": "Show", "added": "2020-01-01T00:00:00Z"}]
+    last_played = {"1": "2025-01-01T00:00:00Z"}
+    rows = rank_cycle_candidates(items, last_played_by_id=last_played, key="tvdb_id")
+    assert rows[0]["last_played_at"] == "2025-01-01T00:00:00Z"
+    assert rows[0]["never_watched"] is False

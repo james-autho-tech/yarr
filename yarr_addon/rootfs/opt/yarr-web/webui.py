@@ -154,6 +154,12 @@ def build_status():
         "junk_count": attrs.get("junk_count", 0),
         "junk_bytes": attrs.get("junk_bytes", 0),
         "junk_scan_at": attrs.get("junk_scan_at"),
+        "disk_used_pct": attrs.get("disk_used_pct"),
+        "disk_free_gb": attrs.get("disk_free_gb"),
+        "cycle_check_at": attrs.get("cycle_check_at"),
+        "low_space_threshold_pct": attrs.get("low_space_threshold_pct", 90.0),
+        "cycle_candidates_movies": attrs.get("cycle_candidates_movies", []),
+        "cycle_candidates_shows": attrs.get("cycle_candidates_shows", []),
 
         "library_movies": attrs.get("library_movies", []),
         "library_movie_count": attrs.get("library_movie_count", 0),
@@ -372,7 +378,17 @@ button.small-delete:disabled:hover{color:var(--faint);border-color:var(--edge)}
 <main>
   <div id="banner"></div>
   <section id="library-section" class="tab-page" data-tab="library">
-    <div class="section-head"><span class="section-title">Search &amp; Request</span></div>
+    <div id="space-section" style="display:none">
+      <div class="section-head"><span class="section-title">Free Up Space</span>
+        <span class="section-note" id="space-checked-note"></span></div>
+      <div class="stat-row" id="space-stats"></div>
+      <div class="mode-line" style="margin-bottom:12px">When disk usage crosses the
+        configured threshold, the least recently watched (or never watched) titles in
+        your library show up here to review — nothing is ever deleted automatically.</div>
+      <button onclick="runAction(this,'api/check-space-now')">Check Space Now</button>
+      <div id="space-candidates-container" style="margin-top:14px"></div>
+    </div>
+    <div class="section-head" style="margin-top:30px"><span class="section-title">Search &amp; Request</span></div>
     <div class="search-row">
       <div class="pill-toggle" id="search-type-toggle" style="display:none">
         <button id="search-type-movie" class="active" onclick="setSearchMediaType('movie')">Movie</button>
@@ -441,6 +457,8 @@ let lastJunkEntries = [];
 let lastSearchResults = [];
 let lastLibraryMovies = [];
 let lastLibraryShows = [];
+let lastCycleMovies = [];
+let lastCycleShows = [];
 let searchMediaType = 'movie';
 let allowLibraryDelete = false;
 
@@ -633,6 +651,8 @@ function libraryShowCard(s, i) {
 function showDetail(source, i) {
   const item = source === 'search' ? lastSearchResults[i]
              : source === 'shows' ? lastLibraryShows[i]
+             : source === 'cycleMovies' ? lastCycleMovies[i]
+             : source === 'cycleShows' ? lastCycleShows[i]
              : lastLibraryMovies[i];
   if (!item) return;
   document.getElementById('detail-body').innerHTML = `
@@ -682,6 +702,47 @@ function deleteLibraryShow(i, btn) {
   if (!s || !allowLibraryDelete) return;
   const msg = `Permanently delete "${s.title}"${s.year ? ' ('+s.year+')' : ''} and its files? `
     + 'This is a real library item, not something yArr added — this cannot be undone.';
+  runAction(btn, 'api/library-delete-show', {id: s.id}, {confirmMsg: msg});
+}
+function cycleMeta(item) {
+  return item.never_watched
+    ? `never watched · added ${fmtDate(item.last_activity)}`
+    : `last watched ${fmtDate(item.last_played_at)}`;
+}
+function cycleMovieCard(m, i) {
+  return `<div class="poster-card">
+    <div class="poster-clickable" onclick="showDetail('cycleMovies', ${i})">
+      ${posterImg(m.poster_url, m.title)}
+      <div class="poster-body">
+        <div class="poster-title">${esc(m.title)}</div>
+        <div class="poster-meta">${fmtBytes(m.size||0)} · ${cycleMeta(m)}</div>
+      </div>
+    </div>
+    <div class="poster-actions"><button class="small-delete" onclick="cycleDeleteMovie(${i}, this)" ${allowLibraryDelete?'':'disabled'}>Delete</button></div>
+  </div>`;
+}
+function cycleShowCard(s, i) {
+  return `<div class="poster-card">
+    <div class="poster-clickable" onclick="showDetail('cycleShows', ${i})">
+      ${posterImg(s.poster_url, s.title)}
+      <div class="poster-body">
+        <div class="poster-title">${esc(s.title)}</div>
+        <div class="poster-meta">${fmtBytes(s.size||0)} · ${cycleMeta(s)}</div>
+      </div>
+    </div>
+    <div class="poster-actions"><button class="small-delete" onclick="cycleDeleteShow(${i}, this)" ${allowLibraryDelete?'':'disabled'}>Delete</button></div>
+  </div>`;
+}
+function cycleDeleteMovie(i, btn) {
+  const m = lastCycleMovies[i];
+  if (!m || !allowLibraryDelete) return;
+  const msg = `Permanently delete "${m.title}"${m.year ? ' ('+m.year+')' : ''} and its files? This cannot be undone.`;
+  runAction(btn, 'api/library-delete-movie', {id: m.id}, {confirmMsg: msg});
+}
+function cycleDeleteShow(i, btn) {
+  const s = lastCycleShows[i];
+  if (!s || !allowLibraryDelete) return;
+  const msg = `Permanently delete "${s.title}"${s.year ? ' ('+s.year+')' : ''} and its files? This cannot be undone.`;
   runAction(btn, 'api/library-delete-show', {id: s.id}, {confirmMsg: msg});
 }
 function onLibraryFilterInput() {
@@ -805,6 +866,24 @@ async function refresh() {
     '<div class="mode-line">Deleting from your library is off by default — set <code>allow_library_delete: true</code> in apps.yaml to enable the Delete buttons below. This removes real files, not something yArr added itself.</div>';
   document.getElementById('library-shows-block').style.display = d.tv_enabled ? '' : 'none';
   onLibraryFilterInput();
+
+  document.getElementById('space-section').style.display = d.media_scan_enabled ? '' : 'none';
+  if (d.media_scan_enabled) {
+    lastCycleMovies = d.cycle_candidates_movies || [];
+    lastCycleShows = d.cycle_candidates_shows || [];
+    document.getElementById('space-checked-note').textContent =
+      'checked ' + (d.cycle_check_at ? fmtDate(d.cycle_check_at) : 'never');
+    document.getElementById('space-stats').innerHTML = `
+      <div class="stat"><div class="lbl">Disk used</div><div class="val">${d.disk_used_pct!=null ? d.disk_used_pct.toFixed(0)+'%' : '—'}</div></div>
+      <div class="stat"><div class="lbl">Free</div><div class="val small">${d.disk_free_gb!=null ? d.disk_free_gb.toFixed(0)+' GB' : '—'}</div></div>
+      <div class="stat"><div class="lbl">Threshold</div><div class="val small">${d.low_space_threshold_pct||90}%</div></div>
+    `;
+    const container = document.getElementById('space-candidates-container');
+    container.innerHTML = (lastCycleMovies.length || lastCycleShows.length) ? `
+      ${lastCycleMovies.length ? `<div class="section-note" style="margin-bottom:6px">Movies</div><div class="poster-grid">${lastCycleMovies.map((m,i)=>cycleMovieCard(m,i)).join('')}</div>` : ''}
+      ${lastCycleShows.length ? `<div class="section-note" style="margin:20px 0 6px">Shows</div><div class="poster-grid">${lastCycleShows.map((s,i)=>cycleShowCard(s,i)).join('')}</div>` : ''}
+    ` : '<div class="empty-row">Space looks fine — no candidates to review right now.</div>';
+  }
 
   document.getElementById('nav-sabnzbd').style.display = d.sabnzbd_enabled ? '' : 'none';
   if (!d.sabnzbd_enabled && currentTab === 'sabnzbd') currentTab = 'movies';
@@ -1002,6 +1081,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")
             elif path.endswith("/api/bulk-delete-junk"):
                 ha_fire_event("yarr_bulk_delete_junk")
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/check-space-now"):
+                ha_fire_event("yarr_check_space_now")
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")
             elif path.endswith("/api/search-media"):
                 body = self._read_json_body()

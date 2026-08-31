@@ -39,6 +39,12 @@ monitoring — bundling its own AppDaemon runtime.
   full library is off by default (`allow_library_delete: true` to
   enable it) since it can remove something you've had for years,
   unlike every other delete in yArr.
+- **Free up space (optional)**: when your media disk crosses a configurable
+  usage threshold, yArr lists the least recently watched (or never watched)
+  titles in your library for you to review in the Library tab — ranked
+  oldest-activity-first, never deleted automatically. Reuses the exact same
+  Delete action (and `allow_library_delete` gate) as the rest of the
+  Library tab.
 - **Settings tab**: dry run, both surprise on/off switches, Accept/Deny
   approval, and "learn genres from library" are live toggles in the
   web UI — flip them and they take effect immediately, no apps.yaml

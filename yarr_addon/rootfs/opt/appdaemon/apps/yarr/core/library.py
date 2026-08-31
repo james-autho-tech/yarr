@@ -29,3 +29,24 @@ def mark_in_library(candidates, library_ids: set, key="tmdb_id") -> list:
         "overview": getattr(c, "overview", None) or "",
         "in_library": getattr(c, key) in library_ids,
     } for c in candidates]
+
+
+def rank_cycle_candidates(library_items, last_played_by_id: dict,
+                           key="tmdb_id", limit=20) -> list:
+    """Ranks existing library items as space-cycling candidates: never-
+    watched items (by how long they've sat unwatched, using Radarr/
+    Sonarr's own "added" date) and long-ago-watched items (by Jellyfin's
+    last-played date) sort together on one timeline, oldest activity
+    first — that's the title that has done the least for you lately.
+    Items with neither an "added" nor a last-played date sort last
+    (nothing to rank them by, safest default). Recommend-only: this
+    never deletes anything, just orders what's shown in the web UI."""
+    rows = []
+    for item in library_items:
+        last_played = last_played_by_id.get(str(item.get(key)))
+        last_activity = last_played or item.get("added")
+        rows.append({**item, "last_played_at": last_played,
+                     "never_watched": last_played is None,
+                     "last_activity": last_activity})
+    rows.sort(key=lambda r: r["last_activity"] or "9999")
+    return rows[:limit]
