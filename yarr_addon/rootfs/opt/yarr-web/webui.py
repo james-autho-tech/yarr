@@ -244,10 +244,12 @@ header{padding:28px 24px 22px;border-bottom:2px solid var(--ink)}
 .tagline{color:var(--sub);font-size:13px;margin-top:6px;font-weight:500}
 
 main{max-width:1600px;margin:0 auto;padding:26px 20px 60px}
-/* Text/table-based tabs stay at the original reading width — only the
-   Library tab's poster grid benefits from using the full wide main,
-   which is otherwise wasted space on anything wider than a phone. */
-.tab-page:not([data-tab="library"]){max-width:820px;margin:0 auto}
+/* Text/table-based tabs used to cap at 820px (a plain-prose reading
+   width) — on anything wider than a laptop that left most of the
+   screen empty on both sides for zero reason, since tables/settings
+   rows/log lines all benefit from the extra horizontal room just as
+   much as the Library tab's poster grid does. */
+.tab-page:not([data-tab="library"]){max-width:1300px;margin:0 auto}
 
 .banner{background:var(--err);color:#1a0605;border-radius:6px;padding:14px 18px;
         margin-bottom:24px;font-size:14px;font-weight:600}

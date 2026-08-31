@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.19.1
+
+- Widened every tab besides Library from an 820px centered column to
+  1300px — on anything wider than a laptop, tables/settings rows/log
+  lines were leaving most of the screen empty on both sides for no
+  reason.
+
 ## 0.19.0
 
 - **Removed genre auto-suppress.** Denying a surprise pick no longer
