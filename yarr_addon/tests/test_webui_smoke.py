@@ -153,6 +153,15 @@ class FakeBackend:
             "input_boolean.yarr_tv_surprise_enabled": {"state": "on"},
             "input_boolean.yarr_surprise_requires_approval": {"state": "on"},
             "input_boolean.yarr_learn_genres_from_library": {"state": "off"},
+            "input_text.yarr_genres": {"state": "set", "attributes": {"value": ["action", "comedy"]}},
+            "input_text.yarr_excluded_genres": {"state": "set", "attributes": {"value": ["horror"]}},
+            "input_text.yarr_surprise_genres": {"state": "set", "attributes": {"value": None}},
+            "input_text.yarr_tv_genres": {"state": "set", "attributes": {"value": ["drama"]}},
+            "input_text.yarr_tv_surprise_genres": {"state": "set", "attributes": {"value": None}},
+            "input_number.yarr_min_rating": {"state": "7.0"},
+            "input_number.yarr_max_suggestions_per_run": {"state": "3"},
+            "input_number.yarr_tv_min_rating": {"state": "7.0"},
+            "input_number.yarr_tv_max_suggestions_per_run": {"state": "3"},
         }
 
     def fire_event(self, event_type, data=None):
@@ -235,9 +244,13 @@ def test_every_action_button_fires_and_does_not_crash(browser_page):
         page.wait_for_timeout(1500)
         dupes.get_by_role("button", name="Delete All Junk", exact=True).click()
         page.wait_for_timeout(1500)
-        dupes.get_by_role("button", name="Delete", exact=True).first.click()
+        # Scoped to <table> rows specifically — the Free Up Space section
+        # below Junk also has Delete buttons (on poster-cards, not table
+        # rows), so a bare .first/.last here would drift onto those once
+        # that section renders.
+        dupes.locator("table.list").first.get_by_role("button", name="Delete", exact=True).first.click()
         page.wait_for_timeout(1500)
-        dupes.get_by_role("button", name="Delete", exact=True).last.click()
+        dupes.locator("table.list").last.get_by_role("button", name="Delete", exact=True).first.click()
         page.wait_for_timeout(1500)
 
         assert errors == []
@@ -358,6 +371,38 @@ def test_settings_toggles_fire_and_do_not_crash(browser_page):
         httpd.shutdown()
 
 
+def test_genre_and_number_settings_edit_and_save(browser_page):
+    page, errors = browser_page
+    backend = FakeBackend()
+    httpd, port = start_server(backend)
+    try:
+        page.goto(f"http://127.0.0.1:{port}/")
+        page.wait_for_selector("#library-search-input")
+        page.click("button.tab-btn:has-text('Settings')")
+        settings = page.locator("#settings-section")
+
+        genres_row = settings.locator(".settings-row.list-row", has_text="Movie genres")
+        genres_row.locator("input.text-input").fill("thriller")
+        genres_row.get_by_role("button", name="Add", exact=True).click()
+        page.wait_for_timeout(600)
+
+        genres_row.locator(".chip", has_text="action").locator(".chip-x").click()
+        page.wait_for_timeout(600)
+
+        rating_row = settings.locator(".settings-row", has_text="Minimum rating (movies)")
+        rating_input = rating_row.locator("input[type=number]")
+        rating_input.fill("8.5")
+        rating_input.press("Tab")
+        page.wait_for_timeout(600)
+
+        assert errors == []
+        fired_names = [e for e, _ in backend.fired]
+        assert fired_names.count("set_state:input_text.yarr_genres") >= 2
+        assert "set_state:input_number.yarr_min_rating" in fired_names
+    finally:
+        httpd.shutdown()
+
+
 def test_accept_and_deny_pending_surprises(browser_page):
     page, errors = browser_page
     backend = FakeBackend({
@@ -419,14 +464,15 @@ def test_free_up_space_check_and_delete_candidate(browser_page):
     try:
         page.goto(f"http://127.0.0.1:{port}/")
         page.wait_for_selector("#library-search-input")
-        page.click("button.tab-btn:has-text('Library')")
-        space = page.locator("#space-section")
+        page.click("button.tab-btn:has-text('Cleanup')")
+        dupes = page.locator("#dupes-section")
         page.wait_for_selector("text=Stale Movie")
 
-        space.get_by_role("button", name="Check Space Now", exact=True).click()
+        dupes.get_by_role("button", name="Check Space Now", exact=True).click()
         page.wait_for_timeout(1200)
 
-        space.get_by_role("button", name="Delete", exact=True).first.click()
+        dupes.locator(".poster-card", has_text="Stale Movie").get_by_role(
+            "button", name="Delete", exact=True).click()
         page.wait_for_timeout(1200)
 
         assert errors == []

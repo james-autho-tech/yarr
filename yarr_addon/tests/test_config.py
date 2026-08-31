@@ -10,17 +10,11 @@ def test_defaults_when_apps_yaml_empty():
     assert cfg.radarr_root_folder == "/movies"
     assert cfg.surprise_genres is None
     assert cfg.surprise_requires_approval is True
-    assert cfg.surprise_feedback_deny_threshold == 2
 
 
 def test_surprise_approval_can_be_disabled():
     cfg = build_config({"surprise_requires_approval": False}, {})
     assert cfg.surprise_requires_approval is False
-
-
-def test_surprise_feedback_deny_threshold_parsed():
-    cfg = build_config({"surprise_feedback_deny_threshold": 3}, {})
-    assert cfg.surprise_feedback_deny_threshold == 3
 
 
 def test_tmdb_pages_default_and_parsed():

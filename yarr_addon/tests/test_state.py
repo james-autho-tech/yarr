@@ -204,30 +204,6 @@ def test_pending_surprise_persists_through_save_load(tmp_path):
     assert loaded.pending_surprise == proposal
 
 
-def test_record_genre_feedback_accept_and_deny_are_separate():
-    s = state.YarrState()
-    s = state.record_genre_feedback(s, ["Comedy", "Action"], accepted=True)
-    s = state.record_genre_feedback(s, ["Horror"], accepted=False)
-    assert s.accepted_genre_counts == {"comedy": 1, "action": 1}
-    assert s.denied_genre_counts == {"horror": 1}
-
-
-def test_record_genre_feedback_accumulates():
-    s = state.YarrState()
-    s = state.record_genre_feedback(s, ["horror"], accepted=False)
-    s = state.record_genre_feedback(s, ["horror", "war"], accepted=False)
-    assert s.denied_genre_counts == {"horror": 2, "war": 1}
-
-
-def test_denied_genres_over_threshold():
-    s = state.YarrState()
-    s = state.record_genre_feedback(s, ["horror"], accepted=False)
-    s = state.record_genre_feedback(s, ["horror"], accepted=False)
-    s = state.record_genre_feedback(s, ["war"], accepted=False)
-    assert state.denied_genres_over_threshold(s, threshold=2) == ["horror"]
-    assert set(state.denied_genres_over_threshold(s, threshold=1)) == {"horror", "war"}
-
-
 def test_block_movie_adds_entry():
     s = state.YarrState()
     now = datetime(2026, 1, 1, tzinfo=timezone.utc)

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.19.0
+
+- **Removed genre auto-suppress.** Denying a surprise pick no longer
+  tallies its genres toward silently excluding a whole genre after a
+  couple of denials — that mechanism (and `surprise_feedback_deny_threshold`)
+  is gone entirely. Denying still blocks that exact title outright (see
+  the Blocked tab); excluding a genre is now something you do yourself.
+- **Genre lists and tuning knobs are now Settings-tab editable**, no
+  apps.yaml edit or restart: `genres`, `tv_genres`, `excluded_genres`,
+  `surprise_genres`, `tv_surprise_genres`, `min_rating`,
+  `max_suggestions_per_run`, `tv_min_rating`, `tv_max_suggestions_per_run`.
+  apps.yaml still seeds each one the first time it's created, same as
+  the existing on/off toggles.
+
 ## 0.18.0
 
 - Added **Free Up Space** to the Library tab (opt-in via

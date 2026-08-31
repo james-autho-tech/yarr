@@ -115,13 +115,9 @@ class YarrState:
     # A surprise pick waits here for accept/deny in the web UI before
     # ever touching Radarr/Sonarr — at most one outstanding per medium
     # at a time (a new pick isn't proposed until the current one is
-    # resolved). Accept/deny feedback is tallied per genre (lowercased)
-    # so denied genres can be actively suppressed from future picks,
-    # not just logged — see yarr.py's _denied_genres().
+    # resolved).
     pending_surprise: PendingSurprise = None
     pending_tv_surprise: PendingSurprise = None
-    denied_genre_counts: dict = field(default_factory=dict)
-    accepted_genre_counts: dict = field(default_factory=dict)
 
     # A specific denied surprise is blocked outright, not just its
     # genres tallied — str(tmdb_id)/str(tvdb_id) -> {title, year,
@@ -239,8 +235,6 @@ def load(path: str) -> YarrState:
                           if raw.get("pending_surprise") else None),
         pending_tv_surprise=(PendingSurprise(**raw["pending_tv_surprise"])
                              if raw.get("pending_tv_surprise") else None),
-        denied_genre_counts=dict(raw.get("denied_genre_counts", {})),
-        accepted_genre_counts=dict(raw.get("accepted_genre_counts", {})),
         blocked_movies=dict(raw.get("blocked_movies", {})),
         blocked_shows=dict(raw.get("blocked_shows", {})),
         duplicate_groups=list(raw.get("duplicate_groups", [])),
@@ -282,8 +276,6 @@ def save(state: YarrState, path: str) -> None:
         "pending_surprise": _film_to_dict(state.pending_surprise) if state.pending_surprise else None,
         "pending_tv_surprise": (_film_to_dict(state.pending_tv_surprise)
                                 if state.pending_tv_surprise else None),
-        "denied_genre_counts": state.denied_genre_counts,
-        "accepted_genre_counts": state.accepted_genre_counts,
         "blocked_movies": state.blocked_movies,
         "blocked_shows": state.blocked_shows,
         "duplicate_groups": state.duplicate_groups,
@@ -473,23 +465,6 @@ def set_pending_tv_surprise(state: YarrState, proposal: PendingSurprise) -> Yarr
 
 def clear_pending_tv_surprise(state: YarrState) -> YarrState:
     return _replace(state, pending_tv_surprise=None)
-
-
-def record_genre_feedback(state: YarrState, genres: list, accepted: bool) -> YarrState:
-    """Tallies one accept/deny decision against each of its genres
-    (lowercased). Denied counts are what yarr.py uses to actively
-    suppress a genre going forward (see denied_genres_over_threshold);
-    accepted counts are tracked for symmetry/visibility only."""
-    field_name = "accepted_genre_counts" if accepted else "denied_genre_counts"
-    counts = dict(getattr(state, field_name))
-    for g in genres:
-        key = str(g).lower()
-        counts[key] = counts.get(key, 0) + 1
-    return _replace(state, **{field_name: counts})
-
-
-def denied_genres_over_threshold(state: YarrState, threshold: int) -> list:
-    return [g for g, count in state.denied_genre_counts.items() if count >= threshold]
 
 
 def block_movie(state: YarrState, tmdb_id: int, title: str, year, now: datetime) -> YarrState:

@@ -20,11 +20,10 @@ monitoring — bundling its own AppDaemon runtime.
   title the same way — plus manual "Surprise Me Now" buttons if you
   don't want to wait.
 - **Accept/Deny**: a surprise pick is proposed in the web UI and never
-  touches Radarr/Sonarr until you Accept it. Deny it instead and yArr
-  tallies that pick's genres — deny a genre enough times and it's
-  automatically excluded from future picks, no config editing needed —
-  and blocks that exact title outright, everywhere, until you unblock
-  it from the web UI's **Blocked** tab.
+  touches Radarr/Sonarr until you Accept it. Deny it instead and that
+  exact title is blocked outright, everywhere, until you unblock it from
+  the web UI's **Blocked** tab — yArr never infers anything broader from
+  a denial; excluding a whole genre is something you do yourself.
 - **Watch it, lose it**: once Jellyfin reports an accepted surprise
   film played past a completion threshold — or a surprise show's
   *last* episode finishes — it's deleted after a configurable grace
@@ -41,13 +40,16 @@ monitoring — bundling its own AppDaemon runtime.
   unlike every other delete in yArr.
 - **Free up space (optional)**: when your media disk crosses a configurable
   usage threshold, yArr lists the least recently watched (or never watched)
-  titles in your library for you to review in the Library tab — ranked
+  titles in your library for you to review in the Cleanup tab — ranked
   oldest-activity-first, never deleted automatically. Reuses the exact same
-  Delete action (and `allow_library_delete` gate) as the rest of the
-  Library tab.
+  Delete action (and `allow_library_delete` gate) as the Library tab's own
+  full-library delete.
 - **Settings tab**: dry run, both surprise on/off switches, Accept/Deny
   approval, and "learn genres from library" are live toggles in the
-  web UI — flip them and they take effect immediately, no apps.yaml
+  web UI — plus your genre lists (`genres`/`tv_genres`/`excluded_genres`/
+  the surprise-only overrides) and tuning knobs (`min_rating`/
+  `max_suggestions_per_run` + TV equivalents) are directly editable
+  there too. Everything here takes effect immediately, no apps.yaml
   edit or restart needed.
 - **SABnzbd monitoring (optional)**: read-only queue status (speed,
   ETA, active downloads) as an HA sensor and a web UI card — yArr never

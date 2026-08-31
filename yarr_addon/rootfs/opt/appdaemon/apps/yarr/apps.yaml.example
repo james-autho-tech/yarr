@@ -9,12 +9,14 @@
 # Jellyfin/TMDB/SABnzbd key is actually masked and stored safely.
 #
 # dry_run, surprise_enabled, tv_surprise_enabled,
-# surprise_requires_approval, and learn_genres_from_library are now
-# live toggles in the web UI's Settings tab instead of apps.yaml-only
-# settings — the values below only ever seed the toggle's state the
-# FIRST time the add-on creates it (so upgrading doesn't silently
-# change your current behaviour). Once created, editing the value here
-# does nothing — flip it in the Settings tab instead.
+# surprise_requires_approval, learn_genres_from_library, the genre lists
+# (genres/tv_genres/excluded_genres/surprise_genres/tv_surprise_genres),
+# and min_rating/max_suggestions_per_run (+ tv_ equivalents) are all now
+# live-editable in the web UI's Settings tab instead of apps.yaml-only
+# settings — the values below only ever seed each one's state the FIRST
+# time the add-on creates it (so upgrading doesn't silently change your
+# current behaviour). Once created, editing the value here does
+# nothing — change it in the Settings tab instead.
 # =====================================================================
 
 yarr:
@@ -118,16 +120,12 @@ yarr:
 
   # Hard veto — a title carrying any of these is never suggested or
   # surprised, regardless of genres/tv_genres above or a learned
-  # profile. Applies to both movies and TV.
+  # profile. Applies to both movies and TV. Denying a surprise proposal
+  # in the web UI never touches this list automatically — it blocks
+  # that one exact title instead (see the Blocked tab); add a genre
+  # here yourself, or in the Settings tab, if you want it gone entirely.
   excluded_genres:
     - horror
-
-  # Denying a surprise proposal in the web UI tallies each of its
-  # genres — once a genre has been denied this many times, it's added
-  # to the exclusion above automatically for future picks (movies and
-  # TV share the same tally). Only denials count; accepts are tracked
-  # for visibility but don't currently change what gets picked.
-  surprise_feedback_deny_threshold: 2
 
   # TMDB returns 20 results per page — page 1 alone gets exhausted fast
   # once genre/rating/exclusion/already-suggested filters are applied,

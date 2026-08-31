@@ -29,6 +29,27 @@ TOGGLE_SETTINGS = {
                       "yArr: Learn genres from library", "mdi:brain"),
 }
 
+# Same allow-list principle as TOGGLE_SETTINGS above, generalized to list
+# and number values instead of on/off. (entity_id, label, nullable) —
+# nullable means "empty means inherit the main genre list" (surprise_genres/
+# tv_surprise_genres' existing semantics), not "empty means no genres."
+LIST_SETTINGS = {
+    "genres": ("input_text.yarr_genres", "Movie genres", False),
+    "excluded-genres": ("input_text.yarr_excluded_genres", "Never suggest (movies + TV)", False),
+    "surprise-genres": ("input_text.yarr_surprise_genres", "Surprise-only genres (movies)", True),
+    "tv-genres": ("input_text.yarr_tv_genres", "TV genres", False),
+    "tv-surprise-genres": ("input_text.yarr_tv_surprise_genres", "Surprise-only genres (TV)", True),
+}
+# (entity_id, label, min, max, step)
+NUMBER_SETTINGS = {
+    "min-rating": ("input_number.yarr_min_rating", "Minimum rating (movies)", 0, 10, 0.1),
+    "max-suggestions": ("input_number.yarr_max_suggestions_per_run",
+                         "Max suggestions per run (movies)", 1, 20, 1),
+    "tv-min-rating": ("input_number.yarr_tv_min_rating", "Minimum rating (TV)", 0, 10, 0.1),
+    "tv-max-suggestions": ("input_number.yarr_tv_max_suggestions_per_run",
+                            "Max suggestions per run (TV)", 1, 20, 1),
+}
+
 
 def ha_get_all_states():
     req = urllib.request.Request(
@@ -82,6 +103,17 @@ def is_on(state_obj):
     return bool(state_obj) and state_obj.get("state") == "on"
 
 
+def list_value(state_obj, default):
+    return (state_obj or {}).get("attributes", {}).get("value", default)
+
+
+def number_value(state_obj, default):
+    try:
+        return float((state_obj or {}).get("state"))
+    except (TypeError, ValueError):
+        return default
+
+
 def build_status():
     states = ha_get_all_states()
     status = states.get("sensor.yarr_status") or {}
@@ -108,8 +140,20 @@ def build_status():
         "surprise_requires_approval": is_on(states.get("input_boolean.yarr_surprise_requires_approval")),
         "learn_genres_from_library": is_on(states.get("input_boolean.yarr_learn_genres_from_library")),
 
+        # Same staleness reasoning as the five booleans above — these are
+        # the Settings tab's own editors, so they must reflect a just-made
+        # edit on the very next 5s poll, not wait for yarr.py's 60s tick.
+        "genres_editable": list_value(states.get("input_text.yarr_genres"), []),
+        "excluded_genres_editable": list_value(states.get("input_text.yarr_excluded_genres"), []),
+        "surprise_genres_editable": list_value(states.get("input_text.yarr_surprise_genres"), None),
+        "tv_genres_editable": list_value(states.get("input_text.yarr_tv_genres"), []),
+        "tv_surprise_genres_editable": list_value(states.get("input_text.yarr_tv_surprise_genres"), None),
+        "min_rating": number_value(states.get("input_number.yarr_min_rating"), 7.0),
+        "max_suggestions_per_run": number_value(states.get("input_number.yarr_max_suggestions_per_run"), 3),
+        "tv_min_rating": number_value(states.get("input_number.yarr_tv_min_rating"), 7.0),
+        "tv_max_suggestions_per_run": number_value(states.get("input_number.yarr_tv_max_suggestions_per_run"), 3),
+
         "excluded_genres": attrs.get("excluded_genres", []),
-        "denied_genres": attrs.get("denied_genres", []),
         "effective_genres": attrs.get("effective_genres", []),
         "learned_genres": attrs.get("learned_genres", []),
 
@@ -252,8 +296,10 @@ input.text-input:focus{outline:none;border-color:var(--accent)}
 .settings-row{display:flex;align-items:center;justify-content:space-between;gap:20px;
       padding:16px 0;border-bottom:1px solid var(--edge);flex-wrap:wrap}
 .settings-row:last-child{border-bottom:none}
+.settings-row.list-row{align-items:flex-start}
 .settings-label{font-weight:700;font-size:14px;color:var(--ink)}
 .settings-desc{font-size:12px;color:var(--faint);margin-top:3px;max-width:480px;line-height:1.5}
+.chip-x{margin-left:6px;cursor:pointer;font-weight:900}
 .badge{font-size:11px;padding:3px 10px;border-radius:4px;font-weight:800;letter-spacing:.02em;
       text-transform:uppercase;background:var(--ok);color:#06210e}
 
@@ -378,17 +424,7 @@ button.small-delete:disabled:hover{color:var(--faint);border-color:var(--edge)}
 <main>
   <div id="banner"></div>
   <section id="library-section" class="tab-page" data-tab="library">
-    <div id="space-section" style="display:none">
-      <div class="section-head"><span class="section-title">Free Up Space</span>
-        <span class="section-note" id="space-checked-note"></span></div>
-      <div class="stat-row" id="space-stats"></div>
-      <div class="mode-line" style="margin-bottom:12px">When disk usage crosses the
-        configured threshold, the least recently watched (or never watched) titles in
-        your library show up here to review — nothing is ever deleted automatically.</div>
-      <button onclick="runAction(this,'api/check-space-now')">Check Space Now</button>
-      <div id="space-candidates-container" style="margin-top:14px"></div>
-    </div>
-    <div class="section-head" style="margin-top:30px"><span class="section-title">Search &amp; Request</span></div>
+    <div class="section-head"><span class="section-title">Search &amp; Request</span></div>
     <div class="search-row">
       <div class="pill-toggle" id="search-type-toggle" style="display:none">
         <button id="search-type-movie" class="active" onclick="setSearchMediaType('movie')">Movie</button>
@@ -562,6 +598,48 @@ function setToggle(btn, name, on) {
   // find — watchLog:false shows an instant "Done." instead of
   // uselessly waiting ~9.6s before giving up.
   runAction(btn, 'api/toggle-setting', {name, on}, {watchLog:false});
+}
+let currentGenreLists = {};
+function genreListEditor(name, label, values, nullable) {
+  const chips = (values||[]).map((g, i) => `<span class="chip on">${esc(g)}<span class="chip-x" onclick="removeGenre('${name}', ${i})">&times;</span></span>`).join('');
+  const inheritNote = nullable && values === null
+    ? `<div class="mode-line">Inheriting the main genre list. <button class="ghost" onclick="customizeGenreList('${name}')">Customize</button></div>`
+    : '';
+  return `<div class="settings-row list-row"><div class="settings-label">${esc(label)}</div>
+    <div style="flex:1 1 260px">
+      ${inheritNote}
+      ${values !== null ? `<div class="chips">${chips}</div>
+        <div class="search-row" style="margin-top:8px;margin-bottom:0">
+          <input class="text-input" id="genre-input-${name}" placeholder="Add a genre..."
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();addGenre('${name}')}">
+          <button onclick="addGenre('${name}')">Add</button>
+          ${nullable ? `<button class="ghost" onclick="resetGenreList('${name}')">Inherit main list</button>` : ''}
+        </div>` : ''}
+    </div></div>`;
+}
+function saveGenreList(name, values) {
+  runAction(null, 'api/set-list-setting', {name, values}, {watchLog:false});
+}
+function addGenre(name) {
+  const input = document.getElementById('genre-input-' + name);
+  const v = input ? input.value.trim() : '';
+  if (!v) return;
+  const current = (currentGenreLists[name] || []).slice();
+  if (!current.includes(v.toLowerCase())) current.push(v.toLowerCase());
+  input.value = '';
+  saveGenreList(name, current);
+}
+function removeGenre(name, i) {
+  const current = (currentGenreLists[name] || []).slice();
+  current.splice(i, 1);
+  saveGenreList(name, current);
+}
+function customizeGenreList(name) { saveGenreList(name, []); }
+function resetGenreList(name) { saveGenreList(name, null); }
+function numberSettingEditor(name, label, value, step) {
+  return `<div class="settings-row"><div class="settings-label">${esc(label)}</div>
+    <input class="text-input" type="number" step="${step}" value="${value}" style="max-width:120px"
+           onchange="runAction(null,'api/set-number-setting',{name:'${name}',value:parseFloat(this.value)},{watchLog:false})"></div>`;
 }
 function statusPill(s){
   const labels = {pending_watch:'awaiting watch', watched:'watched', deleting_soon:'deleting soon'};
@@ -784,7 +862,6 @@ async function refresh() {
     <div class="mode-line">${genreMode}</div>
     ${chipsRow(d.effective_genres)}
     ${d.excluded_genres && d.excluded_genres.length ? `<div class="mode-line" style="margin-top:8px">Never suggested</div>${chipsRow(d.excluded_genres, 'off')}` : ''}
-    ${d.denied_genres && d.denied_genres.length ? `<div class="mode-line" style="margin-top:8px">Denied enough times to auto-suppress</div>${chipsRow(d.denied_genres, 'off')}` : ''}
     ${proposalCard(d.pending_surprise, 'acceptSurprise', 'denySurprise')}
     <div style="margin:14px 0 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
       <button onclick="runAction(this,'api/surprise-now')" ${d.pending_surprise ? 'disabled' : ''}>Surprise Me Now</button>
@@ -867,24 +944,6 @@ async function refresh() {
   document.getElementById('library-shows-block').style.display = d.tv_enabled ? '' : 'none';
   onLibraryFilterInput();
 
-  document.getElementById('space-section').style.display = d.media_scan_enabled ? '' : 'none';
-  if (d.media_scan_enabled) {
-    lastCycleMovies = d.cycle_candidates_movies || [];
-    lastCycleShows = d.cycle_candidates_shows || [];
-    document.getElementById('space-checked-note').textContent =
-      'checked ' + (d.cycle_check_at ? fmtDate(d.cycle_check_at) : 'never');
-    document.getElementById('space-stats').innerHTML = `
-      <div class="stat"><div class="lbl">Disk used</div><div class="val">${d.disk_used_pct!=null ? d.disk_used_pct.toFixed(0)+'%' : '—'}</div></div>
-      <div class="stat"><div class="lbl">Free</div><div class="val small">${d.disk_free_gb!=null ? d.disk_free_gb.toFixed(0)+' GB' : '—'}</div></div>
-      <div class="stat"><div class="lbl">Threshold</div><div class="val small">${d.low_space_threshold_pct||90}%</div></div>
-    `;
-    const container = document.getElementById('space-candidates-container');
-    container.innerHTML = (lastCycleMovies.length || lastCycleShows.length) ? `
-      ${lastCycleMovies.length ? `<div class="section-note" style="margin-bottom:6px">Movies</div><div class="poster-grid">${lastCycleMovies.map((m,i)=>cycleMovieCard(m,i)).join('')}</div>` : ''}
-      ${lastCycleShows.length ? `<div class="section-note" style="margin:20px 0 6px">Shows</div><div class="poster-grid">${lastCycleShows.map((s,i)=>cycleShowCard(s,i)).join('')}</div>` : ''}
-    ` : '<div class="empty-row">Space looks fine — no candidates to review right now.</div>';
-  }
-
   document.getElementById('nav-sabnzbd').style.display = d.sabnzbd_enabled ? '' : 'none';
   if (!d.sabnzbd_enabled && currentTab === 'sabnzbd') currentTab = 'movies';
   const sabSection = document.getElementById('sabnzbd-section');
@@ -912,6 +971,8 @@ async function refresh() {
     const groups = d.duplicate_groups || [];
     const junk = d.junk_entries || [];
     lastJunkEntries = junk;
+    lastCycleMovies = d.cycle_candidates_movies || [];
+    lastCycleShows = d.cycle_candidates_shows || [];
     dupesSection.innerHTML = `
       <div class="section-head"><span class="section-title">Duplicates</span>
         <span class="section-note">last scan ${d.duplicate_scan_at ? fmtDate(d.duplicate_scan_at) : 'never'}</span></div>
@@ -945,9 +1006,32 @@ async function refresh() {
         ${junk.map(j => `<tr><td class="title-cell" title="${esc(j.path)}">${esc(baseName(j.path))}${j.is_dir ? ' <span class="section-note">(folder)</span>' : ''}</td><td class="year">${fmtBytes(j.size)}</td>
           <td><button class="small-delete" onclick="runAction(this,'api/delete-junk-entry',{path:${escAttr(JSON.stringify(j.path))}},{confirmMsg:${escAttr(JSON.stringify(j.is_dir ? 'Delete this entire folder and everything inside it? This cannot be undone.' : 'Delete this file from disk now? This cannot be undone.'))}})">Delete</button></td></tr>`).join('')}
       </tbody></table>` : '<div class="empty-row" style="margin-top:14px">No leftover unpack junk found.</div>'}
+
+      <div class="section-head" style="margin-top:30px"><span class="section-title">Free Up Space</span>
+        <span class="section-note">checked ${d.cycle_check_at ? fmtDate(d.cycle_check_at) : 'never'}</span></div>
+      <div class="stat-row">
+        <div class="stat"><div class="lbl">Disk used</div><div class="val">${d.disk_used_pct!=null ? d.disk_used_pct.toFixed(0)+'%' : '—'}</div></div>
+        <div class="stat"><div class="lbl">Free</div><div class="val small">${d.disk_free_gb!=null ? d.disk_free_gb.toFixed(0)+' GB' : '—'}</div></div>
+        <div class="stat"><div class="lbl">Threshold</div><div class="val small">${d.low_space_threshold_pct||90}%</div></div>
+      </div>
+      <div class="mode-line" style="margin-bottom:12px">When disk usage crosses the threshold above, the
+        least recently watched (or never watched) titles in your library show up here to review —
+        nothing is ever deleted automatically.</div>
+      <button onclick="runAction(this,'api/check-space-now')">Check Space Now</button>
+      <div style="margin-top:14px">
+        ${(lastCycleMovies.length || lastCycleShows.length) ? `
+          ${lastCycleMovies.length ? `<div class="section-note" style="margin-bottom:6px">Movies</div><div class="poster-grid">${lastCycleMovies.map((m,i)=>cycleMovieCard(m,i)).join('')}</div>` : ''}
+          ${lastCycleShows.length ? `<div class="section-note" style="margin:20px 0 6px">Shows</div><div class="poster-grid">${lastCycleShows.map((s,i)=>cycleShowCard(s,i)).join('')}</div>` : ''}
+        ` : '<div class="empty-row">Space looks fine — no candidates to review right now.</div>'}
+      </div>
     `;
   }
 
+  currentGenreLists = {
+    'genres': d.genres_editable, 'excluded-genres': d.excluded_genres_editable,
+    'surprise-genres': d.surprise_genres_editable, 'tv-genres': d.tv_genres_editable,
+    'tv-surprise-genres': d.tv_surprise_genres_editable,
+  };
   document.getElementById('settings-list').innerHTML =
     settingsRow('dry-run', 'Dry run',
       'Genre auto-add, surprise picks, and duplicate/junk deletes are computed and logged but never actually written to Radarr/Sonarr/disk. Useful for checking behaviour before trusting it for real.',
@@ -963,7 +1047,19 @@ async function refresh() {
       d.tv_surprise_enabled) : '')
     + settingsRow('surprise-requires-approval', 'Surprises need Accept/Deny',
       'When on, a surprise pick is proposed in the web UI and never touches Radarr/Sonarr until you Accept it. When off, surprises are added immediately, same as genre auto-add.',
-      d.surprise_requires_approval);
+      d.surprise_requires_approval)
+    + `<div class="section-note" style="margin:20px 0 6px">Movie genres</div>`
+    + genreListEditor('genres', 'Movie genres', d.genres_editable, false)
+    + genreListEditor('excluded-genres', 'Never suggest (movies + TV)', d.excluded_genres_editable, false)
+    + genreListEditor('surprise-genres', 'Surprise-only genres (movies)', d.surprise_genres_editable, true)
+    + numberSettingEditor('min-rating', 'Minimum rating (movies)', d.min_rating, 0.1)
+    + numberSettingEditor('max-suggestions', 'Max suggestions per run (movies)', d.max_suggestions_per_run, 1)
+    + (d.tv_enabled ? `<div class="section-note" style="margin:20px 0 6px">TV genres</div>`
+      + genreListEditor('tv-genres', 'TV genres', d.tv_genres_editable, false)
+      + genreListEditor('tv-surprise-genres', 'Surprise-only genres (TV)', d.tv_surprise_genres_editable, true)
+      + numberSettingEditor('tv-min-rating', 'Minimum rating (TV)', d.tv_min_rating, 0.1)
+      + numberSettingEditor('tv-max-suggestions', 'Max suggestions per run (TV)', d.tv_max_suggestions_per_run, 1)
+      : '');
 
   const log = d.log || [];
   document.getElementById('log-section').innerHTML = `
@@ -1037,6 +1133,33 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     ha_set_state(entity_id, "on" if body.get("on") else "off",
                                  {"friendly_name": friendly_name, "icon": icon})
                     self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/set-list-setting"):
+                body = self._read_json_body()
+                entry = LIST_SETTINGS.get(body.get("name"))
+                if entry is None:
+                    self._send(400, json.dumps({"error": "unknown setting"}).encode(), "application/json")
+                else:
+                    entity_id, _, nullable = entry
+                    values = body.get("values")
+                    value = ([str(v).strip().lower() for v in values if str(v).strip()]
+                             if values is not None else None)
+                    if value is None and not nullable:
+                        value = []
+                    ha_set_state(entity_id, "set", {"value": value})
+                    self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/set-number-setting"):
+                body = self._read_json_body()
+                entry = NUMBER_SETTINGS.get(body.get("name"))
+                if entry is None:
+                    self._send(400, json.dumps({"error": "unknown setting"}).encode(), "application/json")
+                else:
+                    entity_id, _, lo, hi, _ = entry
+                    try:
+                        value = max(lo, min(hi, float(body.get("value"))))
+                        ha_set_state(entity_id, str(value))
+                        self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+                    except (TypeError, ValueError):
+                        self._send(400, json.dumps({"error": "invalid value"}).encode(), "application/json")
             elif path.endswith("/api/unblock-movie"):
                 tmdb_id = self._read_json_body().get("tmdb_id")
                 ha_fire_event("yarr_unblock_movie", {"tmdb_id": tmdb_id})

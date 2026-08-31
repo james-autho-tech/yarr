@@ -59,6 +59,7 @@ class Yarr(hass.Hass):
                          if self.cfg.sabnzbd_enabled else None)
         self._jellyfin_user_id = None
         self._ensure_boolean_states()
+        self._ensure_value_states()
 
         # Plain custom HA events, not input_button entities — a real
         # install showed HA's Config REST API 404s on input_boolean/
@@ -187,6 +188,91 @@ class Yarr(hass.Hass):
                 self.set_state(entity_id, state=default_state,
                                 attributes={"friendly_name": name, "icon": icon})
 
+    def _list_setting(self, entity_id, default):
+        val = self.get_state(entity_id, attribute="value")
+        return list(val) if val is not None else list(default)
+
+    def _nullable_list_setting(self, entity_id):
+        val = self.get_state(entity_id, attribute="value")
+        return list(val) if val is not None else None
+
+    def _number_setting(self, entity_id, default):
+        val = self.get_state(entity_id)
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return default
+
+    def _genres(self):
+        return self._list_setting("input_text.yarr_genres", self.cfg.genres)
+
+    def _tv_genres(self):
+        return self._list_setting("input_text.yarr_tv_genres", self.cfg.tv_genres)
+
+    def _excluded_genres(self):
+        return self._list_setting("input_text.yarr_excluded_genres", self.cfg.excluded_genres)
+
+    def _surprise_genres(self):
+        return self._nullable_list_setting("input_text.yarr_surprise_genres")
+
+    def _tv_surprise_genres(self):
+        return self._nullable_list_setting("input_text.yarr_tv_surprise_genres")
+
+    def _min_rating(self):
+        return self._number_setting("input_number.yarr_min_rating", self.cfg.min_rating)
+
+    def _max_suggestions_per_run(self):
+        return int(self._number_setting(
+            "input_number.yarr_max_suggestions_per_run", self.cfg.max_suggestions_per_run))
+
+    def _tv_min_rating(self):
+        return self._number_setting("input_number.yarr_tv_min_rating", self.cfg.tv_min_rating)
+
+    def _tv_max_suggestions_per_run(self):
+        return int(self._number_setting(
+            "input_number.yarr_tv_max_suggestions_per_run", self.cfg.tv_max_suggestions_per_run))
+
+    def _ensure_value_states(self):
+        """Same idea as _ensure_boolean_states() above, generalized from
+        on/off to lists and numbers: genres/tv_genres/excluded_genres/
+        surprise_genres/tv_surprise_genres and min_rating/
+        max_suggestions_per_run (+ tv_ equivalents) are now live-editable
+        in the web UI's Settings tab instead of apps.yaml-only. Seeded
+        from apps.yaml's CURRENT value (self.cfg.X, never a live-read
+        helper — reading back an entity this method itself is about to
+        create would see nothing yet and seed an empty/wrong default)
+        the first time each entity is created; apps.yaml is never
+        consulted again for these after that.
+
+        List values live in attributes["value"], not the bare state
+        string — HA's raw state field has a practical ~255-char limit,
+        which a JSON-encoded genre list could plausibly hit, while
+        attributes have no such ceiling (same reason every other
+        non-trivial value in this app — surprises, blocked titles,
+        library rows — already lives in a sensor's attributes rather
+        than its bare state). Numbers stay in the bare state string
+        (always short, no attributes needed)."""
+        list_defaults = {
+            "input_text.yarr_genres": self.cfg.genres,
+            "input_text.yarr_tv_genres": self.cfg.tv_genres,
+            "input_text.yarr_excluded_genres": self.cfg.excluded_genres,
+            "input_text.yarr_surprise_genres": self.cfg.surprise_genres,
+            "input_text.yarr_tv_surprise_genres": self.cfg.tv_surprise_genres,
+        }
+        for entity_id, seed in list_defaults.items():
+            if not self.entity_exists(entity_id):
+                self.set_state(entity_id, state="set", attributes={"value": seed})
+
+        number_defaults = {
+            "input_number.yarr_min_rating": self.cfg.min_rating,
+            "input_number.yarr_max_suggestions_per_run": self.cfg.max_suggestions_per_run,
+            "input_number.yarr_tv_min_rating": self.cfg.tv_min_rating,
+            "input_number.yarr_tv_max_suggestions_per_run": self.cfg.tv_max_suggestions_per_run,
+        }
+        for entity_id, seed in number_defaults.items():
+            if not self.entity_exists(entity_id):
+                self.set_state(entity_id, state=str(seed))
+
     # ------------------------------------------------------------------
     # LOCAL STATE
     # ------------------------------------------------------------------
@@ -225,21 +311,12 @@ class Yarr(hass.Hass):
     def _effective_genres(self):
         if self._learn_genres_from_library() and self.state_data.learned_genres:
             return self.state_data.learned_genres
-        return self.cfg.genres
+        return self._genres()
 
     def _effective_tv_genres(self):
         if self._learn_genres_from_library() and self.state_data.learned_tv_genres:
             return self.state_data.learned_tv_genres
-        return self.cfg.tv_genres
-
-    def _denied_genres(self):
-        """Genres denied at least surprise_feedback_deny_threshold times
-        via the web UI's Deny button — actively excluded from future
-        surprise picks on top of the configured excluded_genres, not
-        just logged. Only ever affects surprises, never the regular
-        genre auto-add (which the user never explicitly rejected)."""
-        return core_state.denied_genres_over_threshold(
-            self.state_data, self.cfg.surprise_feedback_deny_threshold)
+        return self._tv_genres()
 
     # ------------------------------------------------------------------
     # WATCHED-CACHE / TASTE RESYNC — shared cadence for movies + TV
@@ -271,12 +348,12 @@ class Yarr(hass.Hass):
             movie_items = (self.jellyfin.get_watched_items_for_taste(user_id, "Movie")
                            + core_taste.library_items_as_watched(self.state_data.library_movies))
             self.state_data.learned_genres = core_taste.top_genres(
-                movie_items, top_n=self.cfg.taste_top_n_genres, exclude=self.cfg.excluded_genres)
+                movie_items, top_n=self.cfg.taste_top_n_genres, exclude=self._excluded_genres())
             if self.cfg.tv_enabled:
                 show_items = (self.jellyfin.get_watched_items_for_taste(user_id, "Series")
                               + core_taste.library_items_as_watched(self.state_data.library_shows))
                 self.state_data.learned_tv_genres = core_taste.top_genres(
-                    show_items, top_n=self.cfg.taste_top_n_genres, exclude=self.cfg.excluded_genres)
+                    show_items, top_n=self.cfg.taste_top_n_genres, exclude=self._excluded_genres())
 
         self._save_state()
 
@@ -290,7 +367,7 @@ class Yarr(hass.Hass):
         now = datetime.now(timezone.utc)
         try:
             self._resync_watched_and_taste_if_stale(now)
-            candidates = self.tmdb.discover(self._effective_genres(), self.cfg.min_rating,
+            candidates = self.tmdb.discover(self._effective_genres(), self._min_rating(),
                                              pages=self.cfg.tmdb_pages)
             radarr_ids = self.radarr.get_library_tmdb_ids()
         except (TMDBError, RadarrError, JellyfinError) as exc:
@@ -300,13 +377,13 @@ class Yarr(hass.Hass):
         picks = core_discovery.filter_candidates(
             candidates,
             allowed_genres=self._effective_genres(),
-            min_rating=self.cfg.min_rating,
+            min_rating=self._min_rating(),
             watched_tmdb_ids=set(self.state_data.watched_tmdb_cache),
             radarr_tmdb_ids=radarr_ids,
             already_suggested_tmdb_ids={int(k) for k in self.state_data.suggested} |
                                         {int(k) for k in self.state_data.blocked_movies},
-            excluded_genres=self.cfg.excluded_genres)
-        picks = picks[: self.cfg.max_suggestions_per_run]
+            excluded_genres=self._excluded_genres())
+        picks = picks[: self._max_suggestions_per_run()]
 
         for c in picks:
             radarr_movie_id = None
@@ -350,18 +427,19 @@ class Yarr(hass.Hass):
             self._log_event("A surprise proposal is already awaiting accept/deny — skipping.")
             return
         now = datetime.now(timezone.utc)
-        genres = self.cfg.surprise_genres if self.cfg.surprise_genres is not None else self._effective_genres()
-        excluded = list(self.cfg.excluded_genres) + self._denied_genres()
+        surprise_genres = self._surprise_genres()
+        genres = surprise_genres if surprise_genres is not None else self._effective_genres()
+        excluded = list(self._excluded_genres())
         try:
             self._resync_watched_and_taste_if_stale(now)
-            candidates = self.tmdb.discover(genres, self.cfg.min_rating, pages=self.cfg.tmdb_pages)
+            candidates = self.tmdb.discover(genres, self._min_rating(), pages=self.cfg.tmdb_pages)
             radarr_ids = self.radarr.get_library_tmdb_ids()
         except (TMDBError, RadarrError, JellyfinError) as exc:
             self._log_event(f"surprise pick failed: {exc}", level="error")
             return
 
         pool = core_discovery.filter_candidates(
-            candidates, allowed_genres=genres, min_rating=self.cfg.min_rating,
+            candidates, allowed_genres=genres, min_rating=self._min_rating(),
             watched_tmdb_ids=set(self.state_data.watched_tmdb_cache),
             radarr_tmdb_ids=radarr_ids,
             already_suggested_tmdb_ids={int(k) for k in self.state_data.suggested} |
@@ -432,7 +510,6 @@ class Yarr(hass.Hass):
         if pending is None:
             return
         now = datetime.now(timezone.utc)
-        self.state_data = core_state.record_genre_feedback(self.state_data, pending.genres, accepted=True)
         self.state_data = core_state.clear_pending_surprise(self.state_data)
         self._add_surprise_movie(pending, now)
         self.publish_status({})
@@ -442,12 +519,9 @@ class Yarr(hass.Hass):
         if pending is None:
             return
         now = datetime.now(timezone.utc)
-        self.state_data = core_state.record_genre_feedback(self.state_data, pending.genres, accepted=False)
-        # Denying blocks the exact title outright, not just its genres
-        # — a genre only gets suppressed after surprise_feedback_deny_threshold
-        # denials (see _denied_genres()), but a title you've explicitly
-        # said no to should never come back via genre auto-add or a
-        # future surprise pick, on the first denial.
+        # Denying blocks the exact title outright, everywhere — never
+        # comes back via genre auto-add or a future surprise pick, on
+        # the first denial. See core_state.block_movie / the Blocked tab.
         self.state_data = core_state.block_movie(
             self.state_data, pending.tmdb_id, pending.title, pending.year, now)
         self.state_data = core_state.clear_pending_surprise(self.state_data)
@@ -491,7 +565,7 @@ class Yarr(hass.Hass):
         now = datetime.now(timezone.utc)
         try:
             self._resync_watched_and_taste_if_stale(now)
-            candidates = self.tmdb.discover_tv(self._effective_tv_genres(), self.cfg.tv_min_rating,
+            candidates = self.tmdb.discover_tv(self._effective_tv_genres(), self._tv_min_rating(),
                                                 pages=self.cfg.tmdb_pages)
             sonarr_ids = self.sonarr.get_library_tvdb_ids()
         except (TMDBError, SonarrError, JellyfinError) as exc:
@@ -501,13 +575,13 @@ class Yarr(hass.Hass):
         picks = core_discovery.filter_candidates(
             candidates,
             allowed_genres=self._effective_tv_genres(),
-            min_rating=self.cfg.tv_min_rating,
+            min_rating=self._tv_min_rating(),
             watched_tmdb_ids=set(self.state_data.watched_tvdb_cache),
             radarr_tmdb_ids=sonarr_ids,
             already_suggested_tmdb_ids={int(k) for k in self.state_data.suggested_shows} |
                                         {int(k) for k in self.state_data.blocked_shows},
-            key="tvdb_id", excluded_genres=self.cfg.excluded_genres)
-        picks = picks[: self.cfg.tv_max_suggestions_per_run]
+            key="tvdb_id", excluded_genres=self._excluded_genres())
+        picks = picks[: self._tv_max_suggestions_per_run()]
 
         for c in picks:
             sonarr_series_id = None
@@ -549,19 +623,19 @@ class Yarr(hass.Hass):
             self._log_event("A TV surprise proposal is already awaiting accept/deny — skipping.")
             return
         now = datetime.now(timezone.utc)
-        genres = (self.cfg.tv_surprise_genres if self.cfg.tv_surprise_genres is not None
-                  else self._effective_tv_genres())
-        excluded = list(self.cfg.excluded_genres) + self._denied_genres()
+        tv_surprise_genres = self._tv_surprise_genres()
+        genres = tv_surprise_genres if tv_surprise_genres is not None else self._effective_tv_genres()
+        excluded = list(self._excluded_genres())
         try:
             self._resync_watched_and_taste_if_stale(now)
-            candidates = self.tmdb.discover_tv(genres, self.cfg.tv_min_rating, pages=self.cfg.tmdb_pages)
+            candidates = self.tmdb.discover_tv(genres, self._tv_min_rating(), pages=self.cfg.tmdb_pages)
             sonarr_ids = self.sonarr.get_library_tvdb_ids()
         except (TMDBError, SonarrError, JellyfinError) as exc:
             self._log_event(f"TV surprise pick failed: {exc}", level="error")
             return
 
         pool = core_discovery.filter_candidates(
-            candidates, allowed_genres=genres, min_rating=self.cfg.tv_min_rating,
+            candidates, allowed_genres=genres, min_rating=self._tv_min_rating(),
             watched_tmdb_ids=set(self.state_data.watched_tvdb_cache),
             radarr_tmdb_ids=sonarr_ids,
             already_suggested_tmdb_ids={int(k) for k in self.state_data.suggested_shows} |
@@ -622,7 +696,6 @@ class Yarr(hass.Hass):
         if pending is None:
             return
         now = datetime.now(timezone.utc)
-        self.state_data = core_state.record_genre_feedback(self.state_data, pending.genres, accepted=True)
         self.state_data = core_state.clear_pending_tv_surprise(self.state_data)
         self._add_surprise_show(pending, now)
         self.publish_status({})
@@ -632,7 +705,6 @@ class Yarr(hass.Hass):
         if pending is None:
             return
         now = datetime.now(timezone.utc)
-        self.state_data = core_state.record_genre_feedback(self.state_data, pending.genres, accepted=False)
         self.state_data = core_state.block_show(
             self.state_data, pending.tvdb_id, pending.title, pending.year, now)
         self.state_data = core_state.clear_pending_tv_surprise(self.state_data)
@@ -1662,8 +1734,7 @@ class Yarr(hass.Hass):
             "tv_enabled": self.cfg.tv_enabled,
             "sabnzbd_enabled": self.cfg.sabnzbd_enabled,
             "media_scan_enabled": self.cfg.media_scan_enabled,
-            "excluded_genres": self.cfg.excluded_genres,
-            "denied_genres": self._denied_genres(),
+            "excluded_genres": self._excluded_genres(),
             "effective_genres": self._effective_genres(),
             "learned_genres": self.state_data.learned_genres,
             "recent_suggested": self._recent_suggested(self.state_data.suggested),

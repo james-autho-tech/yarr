@@ -27,15 +27,14 @@ Configuration tab (credentials):
    `true`) — a surprise pick is proposed in the web UI (title, year,
    rating, genres) and never touches Radarr/Sonarr until you hit
    **Accept**. Only one proposal is outstanding at a time — a new one
-   isn't picked until the current one is resolved. **Deny** tallies
-   that pick's genres (once a genre has been denied
-   `surprise_feedback_deny_threshold` times, default 2, it's
-   automatically excluded from future picks on top of
-   `excluded_genres`) **and blocks that exact title outright** — see
-   "Blocked titles" below. Set `surprise_requires_approval: false` to
-   go back to auto-adding surprises outright with no gate; with
-   approval off there's no Deny button, so titles are never
-   auto-blocked — only a denied proposal blocks anything.
+   isn't picked until the current one is resolved. **Deny blocks that
+   exact title outright** — see "Blocked titles" below. yArr never
+   infers anything broader from a single denial (or a couple) — if you
+   want a whole genre excluded, add it to `excluded_genres` yourself in
+   the Settings tab. Set `surprise_requires_approval: false` to go back
+   to auto-adding surprises outright with no gate; with approval off
+   there's no Deny button, so titles are never auto-blocked — only a
+   denied proposal blocks anything.
 5. **Watch-and-delete** — once Jellyfin reports a *tagged surprise
    film* played past `completion_threshold_pct`, or a *tagged surprise
    show's last episode* crosses it (mid-series episodes don't count —
@@ -53,26 +52,44 @@ Configuration tab (credentials):
    touches your regular library or the genre auto-adds — only titles
    yArr itself added and tagged.
 
-## Settings tab (live toggles, no restart)
+## Settings tab (live edits, no restart)
 
-Five behaviour switches live as toggles in the web UI's **Settings**
-tab instead of `apps.yaml`: `dry_run`, `surprise_enabled`,
-`tv_surprise_enabled`, `surprise_requires_approval`, and
-`learn_genres_from_library`. Flipping one takes effect immediately —
-no file edit, no restart. They're implemented the same way as the
-existing "yArr Engine" master switch and the "Keep It" buttons:
-AppDaemon-owned virtual `input_boolean` states, not real Home
-Assistant helpers (see the note on `ha_support.yaml` in item 5 above
-for why), set via HA's raw state-set endpoint from the web UI.
+The web UI's **Settings** tab holds every day-to-day behaviour knob you'd
+plausibly want to change while using the app, all live-editable with no
+`apps.yaml` edit or restart:
 
-`apps.yaml` still has entries for all five — they only ever seed the
-toggle's value the *first* time the add-on creates it (so upgrading to
-this version doesn't silently change anyone's existing behaviour).
-Once a toggle exists, its apps.yaml value is never read again; change
-it in the Settings tab instead. Everything else — root folders,
-quality profiles, genre lists, thresholds, credentials — still lives
-in `apps.yaml`/the Configuration tab exactly as before; only these
-five day-to-day behaviour switches moved.
+- **Five on/off switches**: `dry_run`, `surprise_enabled`,
+  `tv_surprise_enabled`, `surprise_requires_approval`, and
+  `learn_genres_from_library`.
+- **Genre lists**: `genres`, `tv_genres`, `excluded_genres` (shared by
+  movies and TV), and the optional surprise-only overrides
+  `surprise_genres`/`tv_surprise_genres` — add a genre by typing it and
+  pressing Add, remove one with its chip's ×. The surprise-only lists
+  default to "inherit the main genre list" (shown as such, with a
+  **Customize** button); press **Inherit main list** to go back to that.
+- **Tuning numbers**: `min_rating`/`max_suggestions_per_run` and their
+  `tv_` equivalents.
+
+They're implemented the same way as the existing "yArr Engine" master
+switch and the "Keep It" buttons: AppDaemon-owned virtual states, not
+real Home Assistant helpers (see the note on `ha_support.yaml` in item 5
+above for why), set via HA's raw state-set endpoint from the web UI —
+booleans as an `input_boolean`-style on/off state, genre lists as an
+`input_text`-style entity holding the list in its attributes (its bare
+state has no meaningful value), numbers as an `input_number`-style
+entity holding the number as its state.
+
+`apps.yaml` still has entries for all of these — they only ever seed the
+value the *first* time the add-on creates the underlying entity (so
+upgrading to this version doesn't silently change anyone's existing
+behaviour). Once created, apps.yaml's value is never read again; change
+it in the Settings tab instead. Explicitly **not** covered here — these
+stay apps.yaml-only, either because they're structural (real side
+effects on where/how a new add lands) or because changing them live
+would need a different mechanism (rescheduling a timer, not just reading
+a live value): root folders, quality profile names, minimum
+availability, `discovery_interval_hours`/`tv_discovery_interval_hours`,
+and every credential in the Configuration tab.
 
 ## TMDB setup
 
@@ -235,45 +252,18 @@ action in yArr works.
 
 ## Blocked titles
 
-Denying a proposed surprise (movie or TV) doesn't just tally its
-genres — it blocks that exact title outright, everywhere. A blocked
-title is excluded as a hard filter from genre auto-add and from future
-surprise picks, on any medium, until you unblock it. This is separate
-from (and stricter than) the genre-denial-threshold learning described
-above: genre denial only steers future *picks* away from a genre, but
-the denied title itself could otherwise still resurface later via
-genre auto-add even after its genre gets excluded, since exclusion
-lists can change. Blocking closes that gap for the one title you
-actually said no to.
+Denying a proposed surprise (movie or TV) blocks that exact title
+outright, everywhere — a hard filter from genre auto-add and from
+future surprise picks, on any medium, until you unblock it. This is
+deliberately narrow: denying one title never infers anything about a
+whole genre on its own (see item 4 above) — if you want a genre gone
+entirely, add it to `excluded_genres` yourself in the Settings tab.
 
 The web UI's **Blocked** tab lists every currently-blocked movie and
 show, with an **Unblock** button per row — pressing it makes that
 title eligible for auto-add/surprise again immediately, no restart
 needed. There's no size cap or expiry; a blocked title stays blocked
 until you explicitly unblock it.
-
-## Freeing up space (optional)
-
-Opt-in via the same `media_scan_paths` flag as the Duplicates/Cleanup
-feature below — checking real disk usage needs that NAS mount to exist
-under `/media` regardless. Every `space_check_interval_hours` (default
-6h), yArr checks free space on the first configured `media_scan_paths`
-entry. Once usage crosses `low_space_threshold_pct` (default 90%), it
-ranks your library's least-recently-active titles and lists them in the
-web UI's **Library** tab, under **Free Up Space**, above Search &amp;
-Request — titles never watched (ranked by how long they've sat, using
-Radarr/Sonarr's own "added" date) and titles watched long ago (ranked
-by Jellyfin's last-played date) sort together on one timeline, oldest
-activity first.
-
-**This is purely a recommendation list — yArr never deletes anything
-here on its own.** Each candidate's Delete button is the exact same
-action as the rest of the Library tab (`allow_library_delete` must be
-enabled, and every delete still needs its own confirm) — this feature
-only adds the ranking and the disk-usage trigger, no new deletion path
-or blast radius. Press **Check Space Now** to check immediately instead
-of waiting for the next scheduled check; if usage drops back under the
-threshold, the candidate list clears itself automatically.
 
 ## SABnzbd monitoring (optional)
 
@@ -418,6 +408,27 @@ clear every remaining item from the last scan in a single pass — no
 "only one tracked copy" ambiguity check like bulk duplicate delete,
 since a junk entry is unambiguously junk by definition once it's
 passed all four gates above.
+
+**Free Up Space** (same tab, same `media_scan_paths` opt-in — checking
+real disk usage needs that NAS mount to exist under `/media`
+regardless): every `space_check_interval_hours` (default 6h), yArr
+checks free space on the first configured `media_scan_paths` entry.
+Once usage crosses `low_space_threshold_pct` (default 90%), it ranks
+your library's least-recently-active titles and lists them here —
+titles never watched (ranked by how long they've sat, using
+Radarr/Sonarr's own "added" date) and titles watched long ago (ranked
+by Jellyfin's last-played date) sort together on one timeline, oldest
+activity first.
+
+**This is purely a recommendation list — yArr never deletes anything
+here on its own.** Each candidate's Delete button is the exact same
+action as the Library tab's own full-library delete
+(`allow_library_delete` must be enabled, and every delete still needs
+its own confirm) — this feature only adds the ranking and the
+disk-usage trigger, no new deletion path or blast radius. Press **Check
+Space Now** to check immediately instead of waiting for the next
+scheduled check; if usage drops back under the threshold, the candidate
+list clears itself automatically.
 
 ## Troubleshooting
 
