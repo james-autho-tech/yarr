@@ -80,14 +80,26 @@ dropped Language Profiles entirely.
 ## Learning your taste instead of a genre list (optional)
 
 Set `learn_genres_from_library: true` in `apps.yaml` to have yArr
-derive `genres`/`tv_genres` from your own Jellyfin library instead of
-the hand-typed lists — every watched/favourited item's genres are
-scored (base weight 1, +0.1 per replay, +3 if favourited) and the top
-`taste_top_n_genres` (default 5) become the effective genre filter,
-refreshed on the same `watched_resync_hours` cadence as the watched-id
-caches. If your library hasn't yielded anything yet (e.g. brand new),
-yArr falls back to the configured `genres`/`tv_genres` lists rather
-than running with no genre filter at all.
+derive `genres`/`tv_genres` instead of using the hand-typed lists,
+blending two signals:
+
+- **What Jellyfin says you've actually watched** — every watched/
+  favourited item's genres, scored (base weight 1, +0.1 per replay, +3
+  if favourited).
+- **What's in your full Radarr/Sonarr library at all** — every title
+  currently in your library (the Library tab's own data), scored at
+  the same base weight 1 regardless of watched status. Owning
+  something is a weaker signal than having watched it, but it still
+  counts — and a title that's both owned and watched naturally ends up
+  weighted higher than one merely sitting there unwatched, since it
+  contributes to both passes.
+
+The top `taste_top_n_genres` (default 5) by combined score become the
+effective genre filter, refreshed on the same `watched_resync_hours`
+cadence as the watched-id caches. If neither signal has yielded
+anything yet (e.g. a brand new Jellyfin instance and an empty
+library), yArr falls back to the configured `genres`/`tv_genres` lists
+rather than running with no genre filter at all.
 
 ## Jellyfin setup
 

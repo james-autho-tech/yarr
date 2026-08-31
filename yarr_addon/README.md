@@ -10,8 +10,11 @@ monitoring — bundling its own AppDaemon runtime.
   or already suggested before, and adds good matches to Radarr (movies)
   and, if Sonarr is configured, Sonarr (TV shows).
 - **Learn your taste (optional)**: instead of a hand-typed genre list,
-  yArr can derive a weighted genre profile from what's already in your
-  Jellyfin library — watched/favourited items, weighted by play count.
+  yArr can derive a weighted genre profile blending what Jellyfin says
+  you've actually watched (weighted by play count/favourites) with
+  what's sitting in your full Radarr/Sonarr library at all — owning
+  something counts for less than having watched it, but both signals
+  feed the same ranking.
 - **Surprise me**: on a random jittered cadence (roughly every 5–10
   days, configurable, separately for movies and TV), picks one more
   title the same way — plus manual "Surprise Me Now" buttons if you

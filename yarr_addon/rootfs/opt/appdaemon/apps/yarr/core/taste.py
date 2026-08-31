@@ -14,6 +14,20 @@ class WatchedItem:
     is_favorite: bool = False
 
 
+def library_items_as_watched(library_rows) -> list:
+    """Treats every item in your full Radarr/Sonarr library (see
+    yarr.py's tick_refresh_library — the Library tab's data) as a
+    baseline taste signal: owning something is a weaker signal than
+    having actually watched it, so these carry no play_count/favorite
+    bonus, but they still count toward genre ranking. Meant to be
+    concatenated with real Jellyfin WatchedItems (which do carry
+    play_count/is_favorite) before calling top_genres — a title that's
+    both owned and watched naturally ends up weighted higher than one
+    that's merely owned, since it contributes to both lists rather
+    than needing any special-cased blending logic."""
+    return [WatchedItem(genres=row.get("genres") or []) for row in library_rows]
+
+
 def top_genres(items, *, top_n=5, favorite_bonus=3.0, play_count_weight=0.1, exclude=None) -> list:
     """Score = 1 (base, for appearing at all) + play_count*play_count_weight
     + favorite_bonus if favourited, summed per genre across every item

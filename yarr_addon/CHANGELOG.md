@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.15.0
+
+- `learn_genres_from_library` now blends **two** taste signals instead
+  of one: Jellyfin's watch history (as before — watched/favourited
+  items, weighted by play count) *and* your full Radarr/Sonarr
+  library's genre mix (the Library tab's own data — everything you've
+  collected, whether watched or not). Owning something is a weaker
+  signal than watching it, so library-only items carry no extra
+  weight, but a title that's both owned and watched naturally ranks
+  higher than one merely sitting there unwatched, since it contributes
+  to both signals. No new config — this only changes what
+  `learn_genres_from_library: true` already does; no code changes if
+  you're not using it.
+
 ## 0.14.2
 
 - **Library is now the first tab** and the default landing view.

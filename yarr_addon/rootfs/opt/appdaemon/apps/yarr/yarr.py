@@ -215,11 +215,22 @@ class Yarr(hass.Hass):
         self.state_data.watched_cache_synced_at = now.isoformat()
 
         if self.cfg.learn_genres_from_library:
-            movie_items = self.jellyfin.get_watched_items_for_taste(user_id, "Movie")
+            # Blends two signals: what Jellyfin says you've actually
+            # watched (real play_count/favourite weighting) and what's
+            # sitting in your full Radarr/Sonarr library at all (the
+            # Library tab's data — a weaker signal on its own, since
+            # owning something isn't the same as liking it, but still
+            # worth counting). A title that's both owned and watched
+            # naturally ends up weighted higher than one merely owned,
+            # since it contributes to both lists — no special-cased
+            # blending math needed, see core_taste.library_items_as_watched.
+            movie_items = (self.jellyfin.get_watched_items_for_taste(user_id, "Movie")
+                           + core_taste.library_items_as_watched(self.state_data.library_movies))
             self.state_data.learned_genres = core_taste.top_genres(
                 movie_items, top_n=self.cfg.taste_top_n_genres, exclude=self.cfg.excluded_genres)
             if self.cfg.tv_enabled:
-                show_items = self.jellyfin.get_watched_items_for_taste(user_id, "Series")
+                show_items = (self.jellyfin.get_watched_items_for_taste(user_id, "Series")
+                              + core_taste.library_items_as_watched(self.state_data.library_shows))
                 self.state_data.learned_tv_genres = core_taste.top_genres(
                     show_items, top_n=self.cfg.taste_top_n_genres, exclude=self.cfg.excluded_genres)
 

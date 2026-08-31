@@ -95,11 +95,16 @@ yarr:
   watched_resync_hours: 24
 
   # When true, ignores genres/tv_genres above and instead learns a
-  # weighted genre profile from what's already in your Jellyfin
-  # library (watched/favourited items, weighted by play count) —
-  # refreshed on the same watched_resync_hours cadence. Falls back to
-  # the lists above if your library hasn't yielded anything yet (e.g.
-  # a brand new Jellyfin instance).
+  # weighted genre profile blending two signals: what Jellyfin says
+  # you've actually watched (watched/favourited items, weighted by
+  # play count) and what's sitting in your full Radarr/Sonarr library
+  # at all (the Library tab's data — a weaker signal on its own, since
+  # owning something isn't the same as liking it, but still counted).
+  # A title that's both owned and watched ends up weighted higher than
+  # one merely owned. Refreshed on the same watched_resync_hours
+  # cadence. Falls back to the lists above if neither has yielded
+  # anything yet (e.g. a brand new Jellyfin instance and an empty
+  # library).
   learn_genres_from_library: false
   taste_top_n_genres: 5
 
