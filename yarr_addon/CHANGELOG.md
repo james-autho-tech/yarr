@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.17.0
+
+- Denying a proposed surprise now **blocks that exact title outright**,
+  everywhere — not just its genre. A blocked movie/show is a hard
+  exclusion from genre auto-add and future surprise picks, on any
+  medium, until unblocked.
+- Added a **Blocked** tab to the web UI listing every blocked movie
+  and show, each with an **Unblock** button to make it eligible again
+  immediately, no restart needed.
+
 ## 0.16.0
 
 - Added a **Settings** tab: `dry_run`, `surprise_enabled`,

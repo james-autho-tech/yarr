@@ -28,12 +28,14 @@ Configuration tab (credentials):
    rating, genres) and never touches Radarr/Sonarr until you hit
    **Accept**. Only one proposal is outstanding at a time — a new one
    isn't picked until the current one is resolved. **Deny** tallies
-   that pick's genres; once a genre has been denied
-   `surprise_feedback_deny_threshold` times (default 2), it's
+   that pick's genres (once a genre has been denied
+   `surprise_feedback_deny_threshold` times, default 2, it's
    automatically excluded from future picks on top of
-   `excluded_genres` — this is genuinely learned from your decisions,
-   not just logged. Set `surprise_requires_approval: false` to go back
-   to auto-adding surprises outright with no gate.
+   `excluded_genres`) **and blocks that exact title outright** — see
+   "Blocked titles" below. Set `surprise_requires_approval: false` to
+   go back to auto-adding surprises outright with no gate; with
+   approval off there's no Deny button, so titles are never
+   auto-blocked — only a denied proposal blocks anything.
 5. **Watch-and-delete** — once Jellyfin reports a *tagged surprise
    film* played past `completion_threshold_pct`, or a *tagged surprise
    show's last episode* crosses it (mid-series episodes don't count —
@@ -230,6 +232,25 @@ fires a Home Assistant event and polls for the result, which is far
 too slow to do on every keystroke. Type your query, press Search, and
 results appear a couple of seconds later, the same way every other
 action in yArr works.
+
+## Blocked titles
+
+Denying a proposed surprise (movie or TV) doesn't just tally its
+genres — it blocks that exact title outright, everywhere. A blocked
+title is excluded as a hard filter from genre auto-add and from future
+surprise picks, on any medium, until you unblock it. This is separate
+from (and stricter than) the genre-denial-threshold learning described
+above: genre denial only steers future *picks* away from a genre, but
+the denied title itself could otherwise still resurface later via
+genre auto-add even after its genre gets excluded, since exclusion
+lists can change. Blocking closes that gap for the one title you
+actually said no to.
+
+The web UI's **Blocked** tab lists every currently-blocked movie and
+show, with an **Unblock** button per row — pressing it makes that
+title eligible for auto-add/surprise again immediately, no restart
+needed. There's no size cap or expiry; a blocked title stays blocked
+until you explicitly unblock it.
 
 ## SABnzbd monitoring (optional)
 

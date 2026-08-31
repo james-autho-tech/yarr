@@ -57,6 +57,8 @@ BASE_STATUS_ATTRS = {
     "surprises": [{"id": 123, "title": "Surprise Film", "year": 2019,
                    "status": "deleting_soon", "delete_at": "2026-09-01T00:00:00+00:00"}],
     "pending_surprise": None,
+    "blocked_movies": [{"id": 321, "title": "Rejected Film", "year": 2015,
+                         "blocked_at": "2026-08-30T10:00:00+00:00"}],
     "tv_enabled": True,
     "suggested_shows_count": 2,
     "surprise_shows_count": 1,
@@ -66,6 +68,8 @@ BASE_STATUS_ATTRS = {
     "recent_suggested_shows": [{"title": "Some Show", "year": 2018, "decision": "added"}],
     "surprise_shows": [{"id": 456, "title": "Surprise Show", "year": 2017, "status": "watched"}],
     "pending_tv_surprise": None,
+    "blocked_shows": [{"id": 654, "title": "Rejected Show", "year": 2016,
+                        "blocked_at": "2026-08-30T10:00:00+00:00"}],
     "sabnzbd_enabled": True,
     "media_scan_enabled": True,
     "duplicate_groups": [[
@@ -182,7 +186,7 @@ def test_page_loads_all_tabs_no_errors(browser_page):
     try:
         page.goto(f"http://127.0.0.1:{port}/")
         page.wait_for_selector("#library-search-input")
-        for tab in ["Library", "Movies", "TV", "SABnzbd", "Cleanup", "Settings", "Log"]:
+        for tab in ["Library", "Movies", "TV", "Blocked", "SABnzbd", "Cleanup", "Settings", "Log"]:
             page.click(f"button.tab-btn:has-text('{tab}')")
         assert errors == []
     finally:
@@ -366,5 +370,31 @@ def test_accept_and_deny_pending_surprises(browser_page):
         fired_names = [e for e, _ in backend.fired]
         assert "yarr_accept_surprise" in fired_names
         assert "yarr_deny_tv_surprise" in fired_names
+    finally:
+        httpd.shutdown()
+
+
+def test_blocked_tab_unblock_movie_and_show(browser_page):
+    page, errors = browser_page
+    backend = FakeBackend()
+    httpd, port = start_server(backend)
+    try:
+        page.goto(f"http://127.0.0.1:{port}/")
+        page.wait_for_selector("#library-search-input")
+        page.click("button.tab-btn:has-text('Blocked')")
+        blocked = page.locator("#blocked-section")
+        page.wait_for_selector("text=Rejected Film")
+
+        blocked.locator("#blocked-movies-list").get_by_role(
+            "button", name="Unblock", exact=True).click()
+        page.wait_for_timeout(1200)
+        blocked.locator("#blocked-shows-list").get_by_role(
+            "button", name="Unblock", exact=True).click()
+        page.wait_for_timeout(1200)
+
+        assert errors == []
+        fired_names = [e for e, _ in backend.fired]
+        assert "yarr_unblock_movie" in fired_names
+        assert "yarr_unblock_show" in fired_names
     finally:
         httpd.shutdown()

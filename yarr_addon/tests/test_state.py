@@ -226,3 +226,47 @@ def test_denied_genres_over_threshold():
     s = state.record_genre_feedback(s, ["war"], accepted=False)
     assert state.denied_genres_over_threshold(s, threshold=2) == ["horror"]
     assert set(state.denied_genres_over_threshold(s, threshold=1)) == {"horror", "war"}
+
+
+def test_block_movie_adds_entry():
+    s = state.YarrState()
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    s = state.block_movie(s, 42, "Some Film", 2020, now)
+    assert s.blocked_movies == {"42": {"title": "Some Film", "year": 2020, "blocked_at": now.isoformat()}}
+
+
+def test_unblock_movie_removes_entry():
+    s = state.YarrState()
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    s = state.block_movie(s, 42, "Some Film", 2020, now)
+    s = state.unblock_movie(s, 42)
+    assert s.blocked_movies == {}
+
+
+def test_unblock_movie_missing_id_is_a_noop():
+    s = state.YarrState()
+    s = state.unblock_movie(s, 999)
+    assert s.blocked_movies == {}
+
+
+def test_block_show_adds_entry():
+    s = state.YarrState()
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    s = state.block_show(s, 7, "Some Show", 2019, now)
+    assert s.blocked_shows == {"7": {"title": "Some Show", "year": 2019, "blocked_at": now.isoformat()}}
+
+
+def test_unblock_show_removes_entry():
+    s = state.YarrState()
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    s = state.block_show(s, 7, "Some Show", 2019, now)
+    s = state.unblock_show(s, 7)
+    assert s.blocked_shows == {}
+
+
+def test_block_movie_does_not_affect_other_blocked_entries():
+    s = state.YarrState()
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    s = state.block_movie(s, 1, "Film One", 2020, now)
+    s = state.block_movie(s, 2, "Film Two", 2021, now)
+    assert set(s.blocked_movies) == {"1", "2"}

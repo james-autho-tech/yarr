@@ -120,6 +120,7 @@ def build_status():
         "recent_suggested": attrs.get("recent_suggested", []),
         "surprises": attrs.get("surprises", []),
         "pending_surprise": attrs.get("pending_surprise"),
+        "blocked_movies": attrs.get("blocked_movies", []),
 
         "tv_enabled": attrs.get("tv_enabled", False),
         "suggested_shows_count": attrs.get("suggested_shows_count", 0),
@@ -131,6 +132,7 @@ def build_status():
         "recent_suggested_shows": attrs.get("recent_suggested_shows", []),
         "surprise_shows": attrs.get("surprise_shows", []),
         "pending_tv_surprise": attrs.get("pending_tv_surprise"),
+        "blocked_shows": attrs.get("blocked_shows", []),
 
         "sabnzbd_enabled": attrs.get("sabnzbd_enabled", False),
         "sabnzbd_status": sab.get("state", "unknown"),
@@ -361,6 +363,7 @@ button.small-delete:disabled:hover{color:var(--faint);border-color:var(--edge)}
   <button class="tab-btn" data-tab="library" onclick="selectTab('library')">Library</button>
   <button class="tab-btn" data-tab="movies" onclick="selectTab('movies')">Movies</button>
   <button class="tab-btn" data-tab="tv" id="nav-tv" style="display:none" onclick="selectTab('tv')">TV</button>
+  <button class="tab-btn" data-tab="blocked" onclick="selectTab('blocked')">Blocked</button>
   <button class="tab-btn" data-tab="sabnzbd" id="nav-sabnzbd" style="display:none" onclick="selectTab('sabnzbd')">SABnzbd</button>
   <button class="tab-btn" data-tab="dupes" id="nav-dupes" style="display:none" onclick="selectTab('dupes')">Cleanup</button>
   <button class="tab-btn" data-tab="settings" onclick="selectTab('settings')">Settings</button>
@@ -401,6 +404,18 @@ button.small-delete:disabled:hover{color:var(--faint);border-color:var(--edge)}
   </section>
   <section id="movies-section" class="tab-page" data-tab="movies"></section>
   <section id="tv-section" class="tab-page" data-tab="tv"></section>
+  <section id="blocked-section" class="tab-page" data-tab="blocked">
+    <div class="section-head"><span class="section-title">Blocked</span></div>
+    <div class="mode-line" style="margin-bottom:16px">Denying a surprise blocks that exact title
+      outright — never suggested again by genre auto-add or a future surprise pick, on any medium,
+      until you unblock it here.</div>
+    <div class="section-note" style="margin-bottom:6px">Movies</div>
+    <div id="blocked-movies-list"></div>
+    <div id="blocked-shows-block" style="display:none">
+      <div class="section-note" style="margin:20px 0 6px">TV Shows</div>
+      <div id="blocked-shows-list"></div>
+    </div>
+  </section>
   <section id="sabnzbd-section" class="tab-page" data-tab="sabnzbd"></section>
   <section id="dupes-section" class="tab-page" data-tab="dupes"></section>
   <section id="settings-section" class="tab-page" data-tab="settings">
@@ -551,6 +566,16 @@ function surpriseTable(rows, deleteFn) {
       <td><button class="small-delete" onclick="${deleteFn}(${JSON.stringify(r.id)}, this)">Delete</button></td></tr>`).join('')}
   </tbody></table>`;
 }
+
+function blockedTable(rows, unblockFn) {
+  if (!rows || !rows.length) return '<div class="empty-row">Nothing blocked right now.</div>';
+  return `<table class="list"><thead><tr><th>Title</th><th>Year</th><th>Blocked</th><th></th></tr></thead><tbody>
+    ${rows.map(r => `<tr><td class="title-cell">${esc(r.title)}</td><td class="year">${r.year||'—'}</td><td class="year">${fmtDate(r.blocked_at)}</td>
+      <td><button class="small-delete" onclick="${unblockFn}(${JSON.stringify(r.id)}, this)">Unblock</button></td></tr>`).join('')}
+  </tbody></table>`;
+}
+function unblockMovie(id, btn) { runAction(btn, 'api/unblock-movie', {tmdb_id: id}); }
+function unblockShow(id, btn) { runAction(btn, 'api/unblock-show', {tvdb_id: id}); }
 
 function proposalCard(pending, acceptFn, denyFn) {
   if (!pending) return '';
@@ -713,6 +738,12 @@ async function refresh() {
     <div class="section-note" style="margin:16px 0 6px">Tracked surprises</div>
     ${surpriseTable(d.surprises, 'deleteSurprise')}
   `;
+
+  document.getElementById('blocked-movies-list').innerHTML = blockedTable(d.blocked_movies, 'unblockMovie');
+  document.getElementById('blocked-shows-block').style.display = d.tv_enabled ? '' : 'none';
+  if (d.tv_enabled) {
+    document.getElementById('blocked-shows-list').innerHTML = blockedTable(d.blocked_shows, 'unblockShow');
+  }
 
   document.getElementById('nav-tv').style.display = d.tv_enabled ? '' : 'none';
   if (!d.tv_enabled && currentTab === 'tv') currentTab = 'movies';
@@ -927,6 +958,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     ha_set_state(entity_id, "on" if body.get("on") else "off",
                                  {"friendly_name": friendly_name, "icon": icon})
                     self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/unblock-movie"):
+                tmdb_id = self._read_json_body().get("tmdb_id")
+                ha_fire_event("yarr_unblock_movie", {"tmdb_id": tmdb_id})
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/unblock-show"):
+                tvdb_id = self._read_json_body().get("tvdb_id")
+                ha_fire_event("yarr_unblock_show", {"tvdb_id": tvdb_id})
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
             elif path.endswith("/api/accept-surprise"):
                 ha_fire_event("yarr_accept_surprise")
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")

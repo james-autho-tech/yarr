@@ -22,7 +22,9 @@ monitoring — bundling its own AppDaemon runtime.
 - **Accept/Deny**: a surprise pick is proposed in the web UI and never
   touches Radarr/Sonarr until you Accept it. Deny it instead and yArr
   tallies that pick's genres — deny a genre enough times and it's
-  automatically excluded from future picks, no config editing needed.
+  automatically excluded from future picks, no config editing needed —
+  and blocks that exact title outright, everywhere, until you unblock
+  it from the web UI's **Blocked** tab.
 - **Watch it, lose it**: once Jellyfin reports an accepted surprise
   film played past a completion threshold — or a surprise show's
   *last* episode finishes — it's deleted after a configurable grace

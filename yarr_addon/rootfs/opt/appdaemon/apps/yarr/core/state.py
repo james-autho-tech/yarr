@@ -123,6 +123,15 @@ class YarrState:
     denied_genre_counts: dict = field(default_factory=dict)
     accepted_genre_counts: dict = field(default_factory=dict)
 
+    # A specific denied surprise is blocked outright, not just its
+    # genres tallied — str(tmdb_id)/str(tvdb_id) -> {title, year,
+    # blocked_at}. Checked as a hard exclusion by both genre auto-add
+    # and surprise picks (see yarr.py), same "any yArr path" scope as
+    # excluded_genres — denying a title once means no yArr path adds
+    # it again until you unblock it from the web UI's Blocked tab.
+    blocked_movies: dict = field(default_factory=dict)
+    blocked_shows: dict = field(default_factory=dict)
+
     # Last duplicate-media scan's results (see core/dupes.py) — a plain
     # list of groups, each a list of {"path", "size"} dicts. Deleting is
     # always an explicit user action (single-file or bulk button in the
@@ -222,6 +231,8 @@ def load(path: str) -> YarrState:
                              if raw.get("pending_tv_surprise") else None),
         denied_genre_counts=dict(raw.get("denied_genre_counts", {})),
         accepted_genre_counts=dict(raw.get("accepted_genre_counts", {})),
+        blocked_movies=dict(raw.get("blocked_movies", {})),
+        blocked_shows=dict(raw.get("blocked_shows", {})),
         duplicate_groups=list(raw.get("duplicate_groups", [])),
         duplicate_scan_at=raw.get("duplicate_scan_at"),
         duplicate_deletable_count=raw.get("duplicate_deletable_count"),
@@ -258,6 +269,8 @@ def save(state: YarrState, path: str) -> None:
                                 if state.pending_tv_surprise else None),
         "denied_genre_counts": state.denied_genre_counts,
         "accepted_genre_counts": state.accepted_genre_counts,
+        "blocked_movies": state.blocked_movies,
+        "blocked_shows": state.blocked_shows,
         "duplicate_groups": state.duplicate_groups,
         "duplicate_scan_at": state.duplicate_scan_at,
         "duplicate_deletable_count": state.duplicate_deletable_count,
@@ -457,6 +470,30 @@ def record_genre_feedback(state: YarrState, genres: list, accepted: bool) -> Yar
 
 def denied_genres_over_threshold(state: YarrState, threshold: int) -> list:
     return [g for g, count in state.denied_genre_counts.items() if count >= threshold]
+
+
+def block_movie(state: YarrState, tmdb_id: int, title: str, year, now: datetime) -> YarrState:
+    blocked = dict(state.blocked_movies)
+    blocked[str(tmdb_id)] = {"title": title, "year": year, "blocked_at": now.isoformat()}
+    return _replace(state, blocked_movies=blocked)
+
+
+def unblock_movie(state: YarrState, tmdb_id: int) -> YarrState:
+    blocked = dict(state.blocked_movies)
+    blocked.pop(str(tmdb_id), None)
+    return _replace(state, blocked_movies=blocked)
+
+
+def block_show(state: YarrState, tvdb_id: int, title: str, year, now: datetime) -> YarrState:
+    blocked = dict(state.blocked_shows)
+    blocked[str(tvdb_id)] = {"title": title, "year": year, "blocked_at": now.isoformat()}
+    return _replace(state, blocked_shows=blocked)
+
+
+def unblock_show(state: YarrState, tvdb_id: int) -> YarrState:
+    blocked = dict(state.blocked_shows)
+    blocked.pop(str(tvdb_id), None)
+    return _replace(state, blocked_shows=blocked)
 
 
 def _replace(state: YarrState, **changes) -> YarrState:

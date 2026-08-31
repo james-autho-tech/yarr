@@ -71,11 +71,13 @@ class Yarr(hass.Hass):
         self.listen_event(self.on_accept_surprise, "yarr_accept_surprise")
         self.listen_event(self.on_deny_surprise, "yarr_deny_surprise")
         self.listen_event(self.on_delete_surprise_now, "yarr_delete_surprise_now")
+        self.listen_event(self.on_unblock_movie, "yarr_unblock_movie")
         if self.cfg.tv_enabled:
             self.listen_event(self.on_surprise_tv_now_pressed, "yarr_surprise_tv_now")
             self.listen_event(self.on_accept_tv_surprise, "yarr_accept_tv_surprise")
             self.listen_event(self.on_deny_tv_surprise, "yarr_deny_tv_surprise")
             self.listen_event(self.on_delete_tv_surprise_now, "yarr_delete_tv_surprise_now")
+            self.listen_event(self.on_unblock_show, "yarr_unblock_show")
         if self.cfg.media_scan_enabled:
             self.listen_event(self.on_scan_duplicates_now_pressed, "yarr_scan_duplicates_now")
             self.listen_event(self.on_delete_duplicate_file, "yarr_delete_duplicate_file")
@@ -299,7 +301,8 @@ class Yarr(hass.Hass):
             min_rating=self.cfg.min_rating,
             watched_tmdb_ids=set(self.state_data.watched_tmdb_cache),
             radarr_tmdb_ids=radarr_ids,
-            already_suggested_tmdb_ids={int(k) for k in self.state_data.suggested},
+            already_suggested_tmdb_ids={int(k) for k in self.state_data.suggested} |
+                                        {int(k) for k in self.state_data.blocked_movies},
             excluded_genres=self.cfg.excluded_genres)
         picks = picks[: self.cfg.max_suggestions_per_run]
 
@@ -360,7 +363,8 @@ class Yarr(hass.Hass):
             watched_tmdb_ids=set(self.state_data.watched_tmdb_cache),
             radarr_tmdb_ids=radarr_ids,
             already_suggested_tmdb_ids={int(k) for k in self.state_data.suggested} |
-                                        {int(k) for k in self.state_data.surprises},
+                                        {int(k) for k in self.state_data.surprises} |
+                                        {int(k) for k in self.state_data.blocked_movies},
             excluded_genres=excluded)
         pick = core_discovery.pick_surprise(pool, exclude_tmdb_ids=set())
 
@@ -435,9 +439,17 @@ class Yarr(hass.Hass):
         pending = self.state_data.pending_surprise
         if pending is None:
             return
+        now = datetime.now(timezone.utc)
         self.state_data = core_state.record_genre_feedback(self.state_data, pending.genres, accepted=False)
+        # Denying blocks the exact title outright, not just its genres
+        # — a genre only gets suppressed after surprise_feedback_deny_threshold
+        # denials (see _denied_genres()), but a title you've explicitly
+        # said no to should never come back via genre auto-add or a
+        # future surprise pick, on the first denial.
+        self.state_data = core_state.block_movie(
+            self.state_data, pending.tmdb_id, pending.title, pending.year, now)
         self.state_data = core_state.clear_pending_surprise(self.state_data)
-        self._log_event(f"Denied surprise: {pending.title!r} "
+        self._log_event(f"Denied and blocked surprise: {pending.title!r} "
                          f"(genres: {', '.join(pending.genres) or 'none'}).")
         self.publish_status({})
 
@@ -490,7 +502,8 @@ class Yarr(hass.Hass):
             min_rating=self.cfg.tv_min_rating,
             watched_tmdb_ids=set(self.state_data.watched_tvdb_cache),
             radarr_tmdb_ids=sonarr_ids,
-            already_suggested_tmdb_ids={int(k) for k in self.state_data.suggested_shows},
+            already_suggested_tmdb_ids={int(k) for k in self.state_data.suggested_shows} |
+                                        {int(k) for k in self.state_data.blocked_shows},
             key="tvdb_id", excluded_genres=self.cfg.excluded_genres)
         picks = picks[: self.cfg.tv_max_suggestions_per_run]
 
@@ -550,7 +563,8 @@ class Yarr(hass.Hass):
             watched_tmdb_ids=set(self.state_data.watched_tvdb_cache),
             radarr_tmdb_ids=sonarr_ids,
             already_suggested_tmdb_ids={int(k) for k in self.state_data.suggested_shows} |
-                                        {int(k) for k in self.state_data.surprises_shows},
+                                        {int(k) for k in self.state_data.surprises_shows} |
+                                        {int(k) for k in self.state_data.blocked_shows},
             key="tvdb_id", excluded_genres=excluded)
         pick = core_discovery.pick_surprise(pool, exclude_tmdb_ids=set(), key="tvdb_id")
 
@@ -615,10 +629,35 @@ class Yarr(hass.Hass):
         pending = self.state_data.pending_tv_surprise
         if pending is None:
             return
+        now = datetime.now(timezone.utc)
         self.state_data = core_state.record_genre_feedback(self.state_data, pending.genres, accepted=False)
+        self.state_data = core_state.block_show(
+            self.state_data, pending.tvdb_id, pending.title, pending.year, now)
         self.state_data = core_state.clear_pending_tv_surprise(self.state_data)
-        self._log_event(f"Denied TV surprise: {pending.title!r} "
+        self._log_event(f"Denied and blocked TV surprise: {pending.title!r} "
                          f"(genres: {', '.join(pending.genres) or 'none'}).")
+        self.publish_status({})
+
+    def on_unblock_movie(self, event_name, data, kwargs):
+        tmdb_id = (data or {}).get("tmdb_id")
+        if tmdb_id is None:
+            return
+        item = self.state_data.blocked_movies.get(str(tmdb_id))
+        if item is None:
+            return
+        self.state_data = core_state.unblock_movie(self.state_data, tmdb_id)
+        self._log_event(f"Unblocked {item['title']!r} — eligible for auto-add/surprise again.")
+        self.publish_status({})
+
+    def on_unblock_show(self, event_name, data, kwargs):
+        tvdb_id = (data or {}).get("tvdb_id")
+        if tvdb_id is None or not self.cfg.tv_enabled:
+            return
+        item = self.state_data.blocked_shows.get(str(tvdb_id))
+        if item is None:
+            return
+        self.state_data = core_state.unblock_show(self.state_data, tvdb_id)
+        self._log_event(f"Unblocked {item['title']!r} — eligible for auto-add/surprise again.")
         self.publish_status({})
 
     def on_delete_tv_surprise_now(self, event_name, data, kwargs):
@@ -1533,6 +1572,12 @@ class Yarr(hass.Hass):
         rows = sorted(suggested_dict.values(), key=lambda f: f.suggested_at, reverse=True)
         return [{"title": f.title, "year": f.year, "decision": f.decision} for f in rows[:limit]]
 
+    @staticmethod
+    def _blocked_rows(blocked_dict):
+        rows = [{"id": int(k), "title": v["title"], "year": v["year"], "blocked_at": v["blocked_at"]}
+                for k, v in blocked_dict.items()]
+        return sorted(rows, key=lambda r: r["blocked_at"], reverse=True)
+
     def _surprise_rows(self, surprises_dict, id_field="tmdb_id"):
         rows = sorted(surprises_dict.values(), key=lambda f: f.added_at, reverse=True)
         out = []
@@ -1567,6 +1612,7 @@ class Yarr(hass.Hass):
             "recent_suggested": self._recent_suggested(self.state_data.suggested),
             "surprises": self._surprise_rows(self.state_data.surprises, id_field="tmdb_id"),
             "pending_surprise": self._pending_row(self.state_data.pending_surprise),
+            "blocked_movies": self._blocked_rows(self.state_data.blocked_movies),
             "log": list(reversed(self.state_data.event_log[-30:])),
             # Library tab — always published (not gated on an opt-in
             # feature flag like the sections below), since browsing and
@@ -1593,6 +1639,7 @@ class Yarr(hass.Hass):
                 "recent_suggested_shows": self._recent_suggested(self.state_data.suggested_shows),
                 "surprise_shows": self._surprise_rows(self.state_data.surprises_shows, id_field="tvdb_id"),
                 "pending_tv_surprise": self._pending_row(self.state_data.pending_tv_surprise),
+                "blocked_shows": self._blocked_rows(self.state_data.blocked_shows),
                 "library_shows": self.state_data.library_shows[:2000],
                 "library_show_count": len(self.state_data.library_shows),
             })
