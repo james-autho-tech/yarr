@@ -8,7 +8,9 @@ monitoring — bundling its own AppDaemon runtime.
   favourite genres + a minimum rating, excluding anything already
   watched (per Jellyfin's own watch history), already in your library,
   or already suggested before, and adds good matches to Radarr (movies)
-  and, if Sonarr is configured, Sonarr (TV shows).
+  and, if Sonarr is configured, Sonarr (TV shows). A dedicated Settings
+  tab toggle turns this off on its own, separate from surprises or the
+  full engine switch.
 - **Learn your taste (optional)**: instead of a hand-typed genre list,
   yArr can derive a weighted genre profile blending what Jellyfin says
   you've actually watched (weighted by play count/favourites) with
@@ -44,11 +46,12 @@ monitoring — bundling its own AppDaemon runtime.
   oldest-activity-first, never deleted automatically. Reuses the exact same
   Delete action (and `allow_library_delete` gate) as the Library tab's own
   full-library delete.
-- **Settings tab**: dry run, both surprise on/off switches, Accept/Deny
-  approval, and "learn genres from library" are live toggles in the
-  web UI — plus your genre lists (`genres`/`tv_genres`/`excluded_genres`/
-  the surprise-only overrides) and tuning knobs (`min_rating`/
-  `max_suggestions_per_run` + TV equivalents) are directly editable
+- **Settings tab**: dry run, genre auto-add and surprise on/off switches
+  (movies and TV independently), Accept/Deny approval, and "learn genres
+  from library" are live toggles in the web UI — plus your genre lists
+  (`genres`/`tv_genres`/`excluded_genres`/the surprise-only overrides)
+  and tuning knobs (`min_rating`/`max_suggestions_per_run` + TV
+  equivalents) are directly editable
   there too. Everything here takes effect immediately, no apps.yaml
   edit or restart needed.
 - **SABnzbd monitoring (optional)**: read-only queue status (speed,

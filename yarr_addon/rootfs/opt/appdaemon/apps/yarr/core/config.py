@@ -31,6 +31,12 @@ class YarrConfig:
     radarr_root_folder: str = "/movies"
     radarr_quality_profile_name: str = "HD-1080p"
     radarr_minimum_availability: str = "announced"
+    # The periodic genre-based auto-add (tick_discovery) — separate from
+    # surprise_enabled below and from the master yarr_enable switch, so
+    # you can turn off the "add anything matching my genres" behaviour
+    # specifically while keeping surprises/watch-and-delete/cleanup
+    # running as normal.
+    genre_auto_add_enabled: bool = True
     surprise_enabled: bool = True
     surprise_genres: list = None
     surprise_min_days: float = 5.0
@@ -55,6 +61,7 @@ class YarrConfig:
     # Only sent to Sonarr if set — Sonarr v4 dropped Language Profiles,
     # so this is optional rather than assumed present.
     sonarr_language_profile_id: int = None
+    tv_genre_auto_add_enabled: bool = True
     tv_surprise_enabled: bool = True
     tv_surprise_genres: list = None
     tv_surprise_min_days: float = 5.0
@@ -183,6 +190,7 @@ def build_config(apps_yaml_dict: dict, secrets_dict: dict) -> YarrConfig:
         radarr_root_folder=str(a.get("radarr_root_folder", "/movies")),
         radarr_quality_profile_name=str(a.get("radarr_quality_profile_name", "HD-1080p")),
         radarr_minimum_availability=str(a.get("radarr_minimum_availability", "announced")),
+        genre_auto_add_enabled=bool(a.get("genre_auto_add_enabled", True)),
         surprise_enabled=bool(a.get("surprise_enabled", True)),
         surprise_genres=surprise_genres,
         surprise_min_days=float(a.get("surprise_min_days", 5.0)),
@@ -198,6 +206,7 @@ def build_config(apps_yaml_dict: dict, secrets_dict: dict) -> YarrConfig:
         sonarr_quality_profile_name=str(a.get("sonarr_quality_profile_name", "HD-1080p")),
         sonarr_language_profile_id=(int(a["sonarr_language_profile_id"])
                                      if a.get("sonarr_language_profile_id") else None),
+        tv_genre_auto_add_enabled=bool(a.get("tv_genre_auto_add_enabled", True)),
         tv_surprise_enabled=bool(a.get("tv_surprise_enabled", True)),
         tv_surprise_genres=tv_surprise_genres,
         tv_surprise_min_days=float(a.get("tv_surprise_min_days", 5.0)),

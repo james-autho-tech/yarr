@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.20.0
+
+- Added `genre_auto_add_enabled`/`tv_genre_auto_add_enabled` — Settings
+  tab toggles that turn off the periodic genre-based auto-add on its
+  own, without touching surprises, watch-and-delete, or cleanup.
+  Previously the only way to stop it was the master "yArr Engine"
+  switch, which stopped everything.
+
 ## 0.19.1
 
 - Widened every tab besides Library from an 820px centered column to

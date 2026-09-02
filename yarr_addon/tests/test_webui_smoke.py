@@ -149,6 +149,8 @@ class FakeBackend:
             "input_boolean.yarr_keep_surprise": {"state": "off"},
             "input_boolean.yarr_keep_surprise_tv": {"state": "off"},
             "input_boolean.yarr_dry_run": {"state": "off"},
+            "input_boolean.yarr_genre_auto_add_enabled": {"state": "on"},
+            "input_boolean.yarr_tv_genre_auto_add_enabled": {"state": "on"},
             "input_boolean.yarr_surprise_enabled": {"state": "on"},
             "input_boolean.yarr_tv_surprise_enabled": {"state": "on"},
             "input_boolean.yarr_surprise_requires_approval": {"state": "on"},
@@ -361,12 +363,16 @@ def test_settings_toggles_fire_and_do_not_crash(browser_page):
         settings.locator(".settings-row", has_text="Surprises need Accept/Deny").get_by_role(
             "button", name="Off", exact=True).click()
         page.wait_for_timeout(1200)
+        settings.locator(".settings-row", has_text="Genre auto-add (movies)").get_by_role(
+            "button", name="Off", exact=True).click()
+        page.wait_for_timeout(1200)
 
         assert errors == []
         fired_names = [e for e, _ in backend.fired]
         assert "set_state:input_boolean.yarr_dry_run" in fired_names
         assert "set_state:input_boolean.yarr_learn_genres_from_library" in fired_names
         assert "set_state:input_boolean.yarr_surprise_requires_approval" in fired_names
+        assert "set_state:input_boolean.yarr_genre_auto_add_enabled" in fired_names
     finally:
         httpd.shutdown()
 

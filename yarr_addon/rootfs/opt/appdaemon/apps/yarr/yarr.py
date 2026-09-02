@@ -132,6 +132,12 @@ class Yarr(hass.Hass):
     def _dry_run(self) -> bool:
         return self.get_state("input_boolean.yarr_dry_run") == "on"
 
+    def _genre_auto_add_enabled(self) -> bool:
+        return self.get_state("input_boolean.yarr_genre_auto_add_enabled") == "on"
+
+    def _tv_genre_auto_add_enabled(self) -> bool:
+        return self.get_state("input_boolean.yarr_tv_genre_auto_add_enabled") == "on"
+
     def _surprise_enabled(self) -> bool:
         return self.get_state("input_boolean.yarr_surprise_enabled") == "on"
 
@@ -170,6 +176,12 @@ class Yarr(hass.Hass):
             "input_boolean.yarr_dry_run": (
                 "on" if self.cfg.dry_run else "off",
                 "yArr: Dry run (log only, no real adds/deletes)", "mdi:test-tube"),
+            "input_boolean.yarr_genre_auto_add_enabled": (
+                "on" if self.cfg.genre_auto_add_enabled else "off",
+                "yArr: Genre auto-add (movies)", "mdi:movie-search-outline"),
+            "input_boolean.yarr_tv_genre_auto_add_enabled": (
+                "on" if self.cfg.tv_genre_auto_add_enabled else "off",
+                "yArr: Genre auto-add (TV)", "mdi:movie-search-outline"),
             "input_boolean.yarr_surprise_enabled": (
                 "on" if self.cfg.surprise_enabled else "off",
                 "yArr: Surprise me (movies)", "mdi:dice-5-outline"),
@@ -362,7 +374,7 @@ class Yarr(hass.Hass):
     # ------------------------------------------------------------------
 
     def tick_discovery(self, kwargs):
-        if not self._enabled() or self.missing_secrets:
+        if not self._enabled() or not self._genre_auto_add_enabled() or self.missing_secrets:
             return
         now = datetime.now(timezone.utc)
         try:
@@ -560,7 +572,7 @@ class Yarr(hass.Hass):
     # ------------------------------------------------------------------
 
     def tick_tv_discovery(self, kwargs):
-        if not self._enabled() or self.missing_secrets:
+        if not self._enabled() or not self._tv_genre_auto_add_enabled() or self.missing_secrets:
             return
         now = datetime.now(timezone.utc)
         try:

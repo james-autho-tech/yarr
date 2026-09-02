@@ -17,6 +17,18 @@ def test_surprise_approval_can_be_disabled():
     assert cfg.surprise_requires_approval is False
 
 
+def test_genre_auto_add_enabled_default_true_and_parsed():
+    assert build_config({}, {}).genre_auto_add_enabled is True
+    cfg = build_config({"genre_auto_add_enabled": False}, {})
+    assert cfg.genre_auto_add_enabled is False
+
+
+def test_tv_genre_auto_add_enabled_default_true_and_parsed():
+    assert build_config({}, {}).tv_genre_auto_add_enabled is True
+    cfg = build_config({"tv_genre_auto_add_enabled": False}, {})
+    assert cfg.tv_genre_auto_add_enabled is False
+
+
 def test_tmdb_pages_default_and_parsed():
     assert build_config({}, {}).tmdb_pages == 3
     cfg = build_config({"tmdb_pages": 5}, {})

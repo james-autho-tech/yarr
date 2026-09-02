@@ -19,6 +19,10 @@ PORT = 8100
 TOGGLE_SETTINGS = {
     "dry-run": ("input_boolean.yarr_dry_run",
                 "yArr: Dry run (log only, no real adds/deletes)", "mdi:test-tube"),
+    "genre-auto-add-enabled": ("input_boolean.yarr_genre_auto_add_enabled",
+                                "yArr: Genre auto-add (movies)", "mdi:movie-search-outline"),
+    "tv-genre-auto-add-enabled": ("input_boolean.yarr_tv_genre_auto_add_enabled",
+                                   "yArr: Genre auto-add (TV)", "mdi:movie-search-outline"),
     "surprise-enabled": ("input_boolean.yarr_surprise_enabled",
                           "yArr: Surprise me (movies)", "mdi:dice-5-outline"),
     "tv-surprise-enabled": ("input_boolean.yarr_tv_surprise_enabled",
@@ -135,6 +139,8 @@ def build_status():
         # them from the sensor would show stale data for up to 60s
         # after every flip. Same reasoning as keep_surprise below.
         "dry_run": is_on(states.get("input_boolean.yarr_dry_run")),
+        "genre_auto_add_enabled": is_on(states.get("input_boolean.yarr_genre_auto_add_enabled")),
+        "tv_genre_auto_add_enabled": is_on(states.get("input_boolean.yarr_tv_genre_auto_add_enabled")),
         "surprise_enabled": is_on(states.get("input_boolean.yarr_surprise_enabled")),
         "tv_surprise_enabled": is_on(states.get("input_boolean.yarr_tv_surprise_enabled")),
         "surprise_requires_approval": is_on(states.get("input_boolean.yarr_surprise_requires_approval")),
@@ -1041,6 +1047,12 @@ async function refresh() {
     + settingsRow('learn-genres', 'Learn genres from library',
       'Derive the effective genre list from your Jellyfin watch history plus your full Radarr/Sonarr library, instead of the fixed genres/tv_genres lists in apps.yaml.',
       d.learn_genres_from_library)
+    + settingsRow('genre-auto-add-enabled', 'Genre auto-add (movies)',
+      'Whether the periodic "add anything matching my genres" auto-add runs at all. Turning this off never touches surprises, watch-and-delete, or cleanup — those keep running independently.',
+      d.genre_auto_add_enabled)
+    + (d.tv_enabled ? settingsRow('tv-genre-auto-add-enabled', 'Genre auto-add (TV)',
+      'Same as above, for the TV genre auto-add.',
+      d.tv_genre_auto_add_enabled) : '')
     + settingsRow('surprise-enabled', 'Surprise me (movies)',
       'Whether the automatic random surprise-movie rotation runs at all. The manual "Surprise Me Now" button on the Movies tab still works either way.',
       d.surprise_enabled)

@@ -10,10 +10,16 @@ Configuration tab (credentials):
    + `min_rating`, excludes anything already watched (per Jellyfin's
    own watch history) / already in Radarr / already suggested before,
    and adds up to `max_suggestions_per_run` matches to Radarr.
+   `genre_auto_add_enabled` (default `true`, a Settings-tab toggle) turns
+   this specific behaviour off without touching surprises,
+   watch-and-delete, or cleanup — those keep running independently. The
+   master "yArr Engine" switch still stops everything, this one is just
+   for genre auto-add on its own.
 2. **Genre discovery — TV** (`tick_tv_discovery`) — same idea, using
    `tv_genres`/`tv_min_rating`/`tv_max_suggestions_per_run` against
-   Sonarr. Entirely opt-in: only runs once `sonarr_url`/`sonarr_api_key`
-   are set in the Configuration tab.
+   Sonarr, with its own `tv_genre_auto_add_enabled` toggle. Entirely
+   opt-in: only runs once `sonarr_url`/`sonarr_api_key` are set in the
+   Configuration tab.
 3. **Surprise rotation** (`tick_surprise_check`/`tick_tv_surprise_check`,
    hourly polls against persisted random timestamps between
    `surprise_min_days`/`surprise_max_days` — separately for movies and
@@ -58,9 +64,9 @@ The web UI's **Settings** tab holds every day-to-day behaviour knob you'd
 plausibly want to change while using the app, all live-editable with no
 `apps.yaml` edit or restart:
 
-- **Five on/off switches**: `dry_run`, `surprise_enabled`,
-  `tv_surprise_enabled`, `surprise_requires_approval`, and
-  `learn_genres_from_library`.
+- **On/off switches**: `dry_run`, `genre_auto_add_enabled`,
+  `tv_genre_auto_add_enabled`, `surprise_enabled`, `tv_surprise_enabled`,
+  `surprise_requires_approval`, and `learn_genres_from_library`.
 - **Genre lists**: `genres`, `tv_genres`, `excluded_genres` (shared by
   movies and TV), and the optional surprise-only overrides
   `surprise_genres`/`tv_surprise_genres` — add a genre by typing it and
