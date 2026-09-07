@@ -3,6 +3,8 @@ here (those live in clients/tmdb.py, clients/radarr.py,
 clients/sonarr.py, called from yarr.py; core/ stays free of
 HTTP/AppDaemon dependencies, mirroring core/discovery.py's split)."""
 
+import re
+
 # TMDB's own image CDN — poster_path is always a bare relative path
 # (e.g. "/xyz.jpg") from their API; w300 is a fixed, reasonably-sized
 # width, plenty for a card-grid thumbnail without pulling full-res art.
@@ -50,3 +52,32 @@ def rank_cycle_candidates(library_items, last_played_by_id: dict,
                      "last_activity": last_activity})
     rows.sort(key=lambda r: r["last_activity"] or "9999")
     return rows[:limit]
+
+
+# Either signal alone is unambiguous — no legitimate show title embeds a
+# season/episode code, and no legitimate title carries two or more
+# scene-release tokens (resolution/source/codec) — so this shouldn't
+# false-positive on anything real.
+_EPISODE_CODE_RE = re.compile(r"\bS\d{1,2}E\d{1,3}\b", re.IGNORECASE)
+_RELEASE_TOKEN_RE = re.compile(
+    r"\b(720p|1080p|2160p|480p|WEB[-.]?DL|WEBRip|BluRay|BDRip|HDTV|HDRip|"
+    r"x264|x265|h264|h265)\b", re.IGNORECASE)
+
+
+def find_bogus_series(shows: list) -> list:
+    """Flags Sonarr library entries whose title looks like a raw release
+    filename rather than an actual show name (e.g. "Body of Proof S02E10
+    1080p WEB h264-FaiLED") — something outside yArr fed Sonarr an
+    unparsed release string as a series title. yArr itself never creates
+    a series this way (it only adds via a TMDB-resolved title), so this
+    is always someone/something else's doing — a bad manual add, a
+    script hitting Sonarr's API directly, etc. Returns the matching
+    entries verbatim (same shape as library_shows) for direct reuse by
+    the existing Delete action/allow_library_delete gate — detection
+    only, never auto-deleted."""
+    bogus = []
+    for show in shows:
+        title = show.get("title") or ""
+        if _EPISODE_CODE_RE.search(title) or len(_RELEASE_TOKEN_RE.findall(title)) >= 2:
+            bogus.append(show)
+    return bogus

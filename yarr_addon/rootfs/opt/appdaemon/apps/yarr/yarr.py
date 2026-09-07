@@ -1782,6 +1782,7 @@ class Yarr(hass.Hass):
                 "blocked_shows": self._blocked_rows(self.state_data.blocked_shows),
                 "library_shows": self.state_data.library_shows[:2000],
                 "library_show_count": len(self.state_data.library_shows),
+                "bogus_shows": core_library.find_bogus_series(self.state_data.library_shows),
             })
         if self.cfg.media_scan_enabled:
             attrs.update({

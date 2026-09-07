@@ -39,7 +39,10 @@ monitoring — bundling its own AppDaemon runtime.
   yArr itself suggested — with a filterable table. Deleting from the
   full library is off by default (`allow_library_delete: true` to
   enable it) since it can remove something you've had for years,
-  unlike every other delete in yArr.
+  unlike every other delete in yArr. Also flags **Suspicious Series** —
+  Sonarr entries whose title looks like a raw release filename instead
+  of a real show name (something outside yArr fed Sonarr an unparsed
+  release string) — for review and one-click removal.
 - **Free up space (optional)**: when your media disk crosses a configurable
   usage threshold, yArr lists the least recently watched (or never watched)
   titles in your library for you to review in the Cleanup tab — ranked

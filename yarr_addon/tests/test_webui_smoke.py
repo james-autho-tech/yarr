@@ -108,6 +108,9 @@ BASE_STATUS_ATTRS = {
                         "monitored": True, "size": 5_000_000_000, "poster_url": None,
                         "genres": ["Drama"], "overview": "An existing show's plot."}],
     "library_show_count": 1,
+    "bogus_shows": [{"id": 7, "tvdb_id": 777, "title": "Body of Proof S02E10 1080p WEB h264-FaiLED",
+                      "year": None, "monitored": True, "size": 900_000_000, "poster_url": None,
+                      "genres": [], "overview": ""}],
     "library_synced_at": "2026-08-30T17:00:00+00:00",
     "last_search_query": "Some Query",
     "last_search_media_type": "movie",
@@ -308,6 +311,28 @@ def test_library_search_add_delete_and_filter(browser_page):
         assert "yarr_request_add_movie" in fired_names
         assert "yarr_refresh_library" in fired_names
         assert "yarr_library_delete_movie" in fired_names
+    finally:
+        httpd.shutdown()
+
+
+def test_suspicious_series_delete(browser_page):
+    page, errors = browser_page
+    backend = FakeBackend()
+    httpd, port = start_server(backend)
+    try:
+        page.goto(f"http://127.0.0.1:{port}/")
+        page.wait_for_selector("#library-search-input")
+        page.click("button.tab-btn:has-text('Library')")
+        library = page.locator("#library-section")
+        page.wait_for_selector("text=Body of Proof S02E10 1080p WEB h264-FaiLED")
+
+        library.locator("#bogus-shows-body .poster-card", has_text="Body of Proof").get_by_role(
+            "button", name="Delete", exact=True).click()
+        page.wait_for_timeout(1500)
+
+        assert errors == []
+        fired_names = [e for e, _ in backend.fired]
+        assert "yarr_library_delete_show" in fired_names
     finally:
         httpd.shutdown()
 

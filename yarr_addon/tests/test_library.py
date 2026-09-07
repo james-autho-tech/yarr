@@ -1,5 +1,5 @@
 from core.discovery import Candidate, TVCandidate
-from core.library import mark_in_library, poster_url, rank_cycle_candidates
+from core.library import find_bogus_series, mark_in_library, poster_url, rank_cycle_candidates
 
 
 def make(tmdb_id, rating=8.0, poster_path=None, genres=(), overview=None):
@@ -125,3 +125,48 @@ def test_rank_cycle_candidates_uses_tvdb_key_for_shows():
     rows = rank_cycle_candidates(items, last_played_by_id=last_played, key="tvdb_id")
     assert rows[0]["last_played_at"] == "2025-01-01T00:00:00Z"
     assert rows[0]["never_watched"] is False
+
+
+def test_find_bogus_series_flags_embedded_episode_code():
+    shows = [{"tvdb_id": 1, "title": "Body of Proof S02E10 1080p WEB h264-FaiLED"}]
+    bogus = find_bogus_series(shows)
+    assert len(bogus) == 1
+    assert bogus[0]["tvdb_id"] == 1
+
+
+def test_find_bogus_series_flags_two_or_more_release_tokens():
+    shows = [{"tvdb_id": 1, "title": "Some.Release.Name.1080p.WEBRip.x264-GROUP"}]
+    assert len(find_bogus_series(shows)) == 1
+
+
+def test_find_bogus_series_ignores_single_release_token():
+    shows = [{"tvdb_id": 1, "title": "1923"}]
+    assert find_bogus_series(shows) == []
+
+
+def test_find_bogus_series_ignores_real_show_titles():
+    shows = [
+        {"tvdb_id": 1, "title": "White Collar"},
+        {"tvdb_id": 2, "title": "Ludwig (2024)"},
+        {"tvdb_id": 3, "title": "Monk"},
+        {"tvdb_id": 4, "title": "NCIS"},
+    ]
+    assert find_bogus_series(shows) == []
+
+
+def test_find_bogus_series_mixed_list_returns_only_bogus_entries():
+    shows = [
+        {"tvdb_id": 1, "title": "White Collar"},
+        {"tvdb_id": 2, "title": "Body of Proof S02E10 1080p WEB h264-FaiLED"},
+        {"tvdb_id": 3, "title": "NCIS"},
+    ]
+    bogus = find_bogus_series(shows)
+    assert [s["tvdb_id"] for s in bogus] == [2]
+
+
+def test_find_bogus_series_empty_list_returns_empty():
+    assert find_bogus_series([]) == []
+
+
+def test_find_bogus_series_handles_missing_title_key():
+    assert find_bogus_series([{"tvdb_id": 1}]) == []

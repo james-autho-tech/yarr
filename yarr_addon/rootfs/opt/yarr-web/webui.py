@@ -215,6 +215,7 @@ def build_status():
         "library_movie_count": attrs.get("library_movie_count", 0),
         "library_shows": attrs.get("library_shows", []),
         "library_show_count": attrs.get("library_show_count", 0),
+        "bogus_shows": attrs.get("bogus_shows", []),
         "library_synced_at": attrs.get("library_synced_at"),
         "last_search_query": attrs.get("last_search_query"),
         "last_search_media_type": attrs.get("last_search_media_type"),
@@ -461,6 +462,15 @@ button.small-delete:disabled:hover{color:var(--faint);border-color:var(--edge)}
       <div class="section-note" style="margin:20px 0 6px">Shows</div>
       <div class="poster-grid" id="library-shows-body"></div>
     </div>
+
+    <div id="bogus-shows-block" style="display:none">
+      <div class="section-head" style="margin-top:30px"><span class="section-title">Suspicious Series</span></div>
+      <div class="mode-line" style="margin-bottom:12px">Titles that look like a raw release filename
+        instead of an actual show name — something outside yArr fed Sonarr an unparsed release string
+        as a series title (yArr itself never adds a series this way). Review before deleting; uses the
+        same Delete action/<code>allow_library_delete</code> gate as the rest of the Library tab.</div>
+      <div class="poster-grid" id="bogus-shows-body"></div>
+    </div>
   </section>
   <section id="movies-section" class="tab-page" data-tab="movies"></section>
   <section id="tv-section" class="tab-page" data-tab="tv"></section>
@@ -503,6 +513,7 @@ let lastLibraryMovies = [];
 let lastLibraryShows = [];
 let lastCycleMovies = [];
 let lastCycleShows = [];
+let lastBogusShows = [];
 let searchMediaType = 'movie';
 let allowLibraryDelete = false;
 
@@ -739,6 +750,7 @@ function showDetail(source, i) {
              : source === 'shows' ? lastLibraryShows[i]
              : source === 'cycleMovies' ? lastCycleMovies[i]
              : source === 'cycleShows' ? lastCycleShows[i]
+             : source === 'bogusShows' ? lastBogusShows[i]
              : lastLibraryMovies[i];
   if (!item) return;
   document.getElementById('detail-body').innerHTML = `
@@ -788,6 +800,25 @@ function deleteLibraryShow(i, btn) {
   if (!s || !allowLibraryDelete) return;
   const msg = `Permanently delete "${s.title}"${s.year ? ' ('+s.year+')' : ''} and its files? `
     + 'This is a real library item, not something yArr added — this cannot be undone.';
+  runAction(btn, 'api/library-delete-show', {id: s.id}, {confirmMsg: msg});
+}
+function bogusShowCard(s, i) {
+  return `<div class="poster-card">
+    <div class="poster-clickable" onclick="showDetail('bogusShows', ${i})">
+      ${posterImg(s.poster_url, s.title)}
+      <div class="poster-body">
+        <div class="poster-title">${esc(s.title)}</div>
+        <div class="poster-meta">${fmtBytes(s.size||0)}</div>
+      </div>
+    </div>
+    <div class="poster-actions"><button class="small-delete" onclick="deleteBogusShow(${i}, this)" ${allowLibraryDelete?'':'disabled'}>Delete</button></div>
+  </div>`;
+}
+function deleteBogusShow(i, btn) {
+  const s = lastBogusShows[i];
+  if (!s || !allowLibraryDelete) return;
+  const msg = `Permanently delete "${s.title}"? This looks like a raw release filename, not a real `
+    + 'show title — review the name above before confirming. This cannot be undone.';
   runAction(btn, 'api/library-delete-show', {id: s.id}, {confirmMsg: msg});
 }
 function cycleMeta(item) {
@@ -951,6 +982,12 @@ async function refresh() {
     '<div class="mode-line">Deleting from your library is off by default — set <code>allow_library_delete: true</code> in apps.yaml to enable the Delete buttons below. This removes real files, not something yArr added itself.</div>';
   document.getElementById('library-shows-block').style.display = d.tv_enabled ? '' : 'none';
   onLibraryFilterInput();
+
+  lastBogusShows = d.bogus_shows || [];
+  document.getElementById('bogus-shows-block').style.display =
+    (d.tv_enabled && lastBogusShows.length) ? '' : 'none';
+  document.getElementById('bogus-shows-body').innerHTML =
+    lastBogusShows.map((s, i) => bogusShowCard(s, i)).join('');
 
   document.getElementById('nav-sabnzbd').style.display = d.sabnzbd_enabled ? '' : 'none';
   if (!d.sabnzbd_enabled && currentTab === 'sabnzbd') currentTab = 'movies';

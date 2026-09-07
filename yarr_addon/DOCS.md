@@ -256,6 +256,22 @@ too slow to do on every keystroke. Type your query, press Search, and
 results appear a couple of seconds later, the same way every other
 action in yArr works.
 
+**Suspicious Series** (TV only, same section): every library refresh,
+yArr flags Sonarr entries whose title looks like a raw release filename
+rather than an actual show name — e.g. `Body of Proof S02E10 1080p WEB
+h264-FaiLED` — and lists them here for review. yArr itself only ever
+adds a series via a TMDB-resolved title, so a match here always means
+something else fed Sonarr an unparsed release string as a series title
+(a bad manual add, or a script hitting Sonarr's API directly are the
+usual culprits — check Settings → Import Lists too, a misbehaving list
+feed is a common source). Detection looks for an embedded season/episode
+code (`S02E10`) or two-or-more scene-release tokens (resolution/source/
+codec, e.g. `1080p` + `WEB` + `x264`) — either alone is unambiguous, so
+this shouldn't flag a real show. Nothing is ever deleted automatically:
+this only surfaces candidates, and deleting one uses the exact same
+Delete action/`allow_library_delete` gate as the rest of the Library
+tab.
+
 ## Blocked titles
 
 Denying a proposed surprise (movie or TV) blocks that exact title

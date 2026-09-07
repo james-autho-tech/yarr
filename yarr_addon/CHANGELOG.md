@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.21.0
+
+- Added **Suspicious Series** detection to the Library tab: flags Sonarr
+  entries whose title looks like a raw release filename rather than an
+  actual show name (e.g. `Body of Proof S02E10 1080p WEB h264-FaiLED`)
+  for review and one-click removal — yArr itself never adds a series
+  this way, so a match always means something else fed Sonarr an
+  unparsed release string. Detection only; deleting one uses the same
+  Delete action/`allow_library_delete` gate as the rest of the tab.
+
 ## 0.20.0
 
 - Added `genre_auto_add_enabled`/`tv_genre_auto_add_enabled` — Settings
