@@ -83,6 +83,11 @@ class SonarrClient:
             "tracked_download_status": r.get("trackedDownloadStatus"),
             "error_message": r.get("errorMessage") or
                              "; ".join(m.get("title", "") for m in r.get("statusMessages", [])),
+            # Present-but-null means Sonarr never resolved which episode
+            # this release even is — see core/queue.find_stuck_downloads.
+            # Movies have no equivalent concept, so Radarr's get_queue()
+            # deliberately doesn't carry this key at all.
+            "episode_id": r.get("episodeId"),
         } for r in (records or [])]
 
     def remove_queue_item(self, queue_id: int, blocklist: bool = True) -> None:

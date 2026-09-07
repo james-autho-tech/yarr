@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.22.1
+
+- **Fixed stuck-download detection (0.22.0 caught nothing on real
+  instances)**: confirmed against a live Sonarr install that
+  `status`/`trackedDownloadStatus` stay healthy (`"downloading"`/`"ok"`)
+  even on a dead download — the real signal is a non-empty
+  `errorMessage` (e.g. `"Corrupt RAR file"`, or SABnzbd's own `"Aborted,
+  cannot be completed"` for a dead NZB with missing articles), which is
+  now checked. Also now clears TV queue items Sonarr never resolved to
+  an episode at all (blank Episode/Episode Title in Sonarr's own Queue
+  page) — those never resolve regardless of age.
+
 ## 0.22.0
 
 - Added **automatic stuck/dead download cleanup**: every 30 minutes,

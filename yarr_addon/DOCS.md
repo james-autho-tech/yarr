@@ -463,12 +463,34 @@ Every 30 minutes, yArr checks each configured medium's own Activity/
 Queue (`GET /queue` on Radarr and, if `tv_enabled`, Sonarr) and clears
 anything that's either:
 
-- **Already flagged as errored** by Radarr/Sonarr itself (`trackedDownloadStatus`
-  is `error`, or the queue status is `failed`/`warning`) — cleared
-  immediately regardless of age, or
+- **Carrying a non-empty error message** — confirmed against a real
+  instance that this is the signal that actually works: Radarr/Sonarr
+  can leave `status`/`trackedDownloadStatus` reporting perfectly healthy
+  (`"downloading"`/`"ok"`) on an item that's already dead, with the real
+  reason only ever surfacing in its `errorMessage` (e.g. `"Corrupt RAR
+  file"`, or SABnzbd's own `"Aborted, cannot be completed"` for an NZB
+  with missing articles). `trackedDownloadStatus`/`status` are still
+  checked too, as a fallback for versions that behave differently, but
+  don't rely on those alone. Cleared immediately regardless of age.
+- **(TV only) never resolved to an episode at all** — Sonarr's queue
+  entry has no `episodeId`, meaning it never worked out which episode a
+  release even is. Shows up in Sonarr's own Queue page as a blank
+  Episode/Episode Title column. This will never resolve no matter how
+  long it sits, so it's cleared immediately regardless of age too.
 - **Simply been queued longer than `stuck_download_max_hours`** (default
-  12, Settings-tab editable) with no error reported at all — a genuinely
+  12, Settings-tab editable) with neither of the above — a genuinely
   dead-but-silent download.
+
+**A word of caution before you turn this on live**: if your queue has
+several items sitting at `sizeleft: 0` for days with no error and no
+episode-match problem, that's not "many dead NZBs" — it almost always
+means Radarr/Sonarr finished downloading but isn't importing anything at
+all (a stuck import queue, a permissions problem, or a path mismatch
+between SABnzbd's completed-download folder and what Radarr/Sonarr
+expects). In that case the age-based check will correctly flag every one
+of them as stuck, but clearing them just makes Radarr/Sonarr re-download
+releases it may already have sitting on disk, complete — check Radarr's/
+Sonarr's own Activity log for import errors first if you see this.
 
 "Clearing" means Radarr's/Sonarr's own Queue API: remove the item,
 cancel it in the download client, and blocklist the release so it's
@@ -486,12 +508,11 @@ tabs (last 10, newest first) so you can see what happened after the
 fact. Respects `dry_run` fully — logs what it would clear without
 touching anything.
 
-**Recommended on a new install**: turn on `dry_run` for the first day
-and watch the Log tab before trusting this live. Radarr's/Sonarr's
-`/queue` response shape (particularly whether an `added` timestamp is
-present at all) has varied across versions — `dry_run` lets you confirm
-it's flagging what you'd expect before it starts actually removing
-anything.
+**Recommended on a new install**: turn on `dry_run` for the first check
+and watch the Log tab before trusting this live — it logs exactly what
+it would clear and why, with no changes made, so you can confirm it
+matches what you'd expect (and rule out the stuck-import scenario above)
+before letting it actually remove anything.
 
 ## Troubleshooting
 
