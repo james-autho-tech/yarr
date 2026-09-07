@@ -14,6 +14,7 @@ from core import taste as core_taste
 from core import dupes as core_dupes
 from core import junk as core_junk
 from core import library as core_library
+from core import queue as core_queue
 
 from clients.tmdb import TMDBClient, TMDBError
 from clients.radarr import RadarrClient, RadarrError
@@ -109,6 +110,7 @@ class Yarr(hass.Hass):
             self.run_every(self.tick_tv_surprise_check, "now", 3600)
         self.run_every(self.tick_delete_guard, "now", 900)
         self.run_every(self.tick_reconcile_surprises, "now", 1800)
+        self.run_every(self.tick_stuck_downloads, "now", 1800)
         if self.cfg.sabnzbd_enabled:
             self.run_every(self.tick_sabnzbd_status, "now", 60)
         if self.cfg.media_scan_enabled:
@@ -194,6 +196,9 @@ class Yarr(hass.Hass):
             "input_boolean.yarr_learn_genres_from_library": (
                 "on" if self.cfg.learn_genres_from_library else "off",
                 "yArr: Learn genres from library", "mdi:brain"),
+            "input_boolean.yarr_stuck_download_cleanup_enabled": (
+                "on" if self.cfg.stuck_download_cleanup_enabled else "off",
+                "yArr: Auto-clean stuck downloads", "mdi:download-off-outline"),
         }
         for entity_id, (default_state, name, icon) in defaults.items():
             if not self.entity_exists(entity_id):
@@ -244,6 +249,13 @@ class Yarr(hass.Hass):
         return int(self._number_setting(
             "input_number.yarr_tv_max_suggestions_per_run", self.cfg.tv_max_suggestions_per_run))
 
+    def _stuck_download_cleanup_enabled(self) -> bool:
+        return self.get_state("input_boolean.yarr_stuck_download_cleanup_enabled") == "on"
+
+    def _stuck_download_max_hours(self):
+        return self._number_setting(
+            "input_number.yarr_stuck_download_max_hours", self.cfg.stuck_download_max_hours)
+
     def _ensure_value_states(self):
         """Same idea as _ensure_boolean_states() above, generalized from
         on/off to lists and numbers: genres/tv_genres/excluded_genres/
@@ -280,6 +292,7 @@ class Yarr(hass.Hass):
             "input_number.yarr_max_suggestions_per_run": self.cfg.max_suggestions_per_run,
             "input_number.yarr_tv_min_rating": self.cfg.tv_min_rating,
             "input_number.yarr_tv_max_suggestions_per_run": self.cfg.tv_max_suggestions_per_run,
+            "input_number.yarr_stuck_download_max_hours": self.cfg.stuck_download_max_hours,
         }
         for entity_id, seed in number_defaults.items():
             if not self.entity_exists(entity_id):
@@ -917,6 +930,64 @@ class Yarr(hass.Hass):
                                          "(deleted outside yArr?).")
 
         self._save_state()
+
+    def tick_stuck_downloads(self, kwargs):
+        """Some NZBs have dead links (missing articles, a fake release
+        from the indexer) and never resolve — Radarr's/Sonarr's own
+        queue just sits there "downloading" forever, even with their own
+        stalled-download settings enabled. Checks each medium's queue
+        and removes+blocklists anything Radarr/Sonarr itself already
+        flagged as errored, or that's simply been queued longer than
+        stuck_download_max_hours — the same single call as manually
+        pressing Remove+Blocklist in the Activity/Queue UI, which also
+        makes Radarr/Sonarr search for a replacement immediately. Only
+        ever touches Radarr's/Sonarr's own queue — never talks to
+        SABnzbd directly (see DOCS.md; SABnzbd monitoring stays
+        read-only)."""
+        if not self._enabled() or not self._stuck_download_cleanup_enabled() or self.missing_secrets:
+            return
+        now = datetime.now(timezone.utc)
+        max_hours = self._stuck_download_max_hours()
+
+        try:
+            movie_queue = self.radarr.get_queue()
+        except RadarrError as exc:
+            self._log_event(f"Stuck-download check (movies) failed: {exc}", level="error")
+            movie_queue = []
+        self._clear_stuck_downloads(movie_queue, now, max_hours, self.radarr, "cleared_stuck_downloads")
+
+        if self.cfg.tv_enabled:
+            try:
+                show_queue = self.sonarr.get_queue()
+            except SonarrError as exc:
+                self._log_event(f"Stuck-download check (TV) failed: {exc}", level="error")
+                show_queue = []
+            self._clear_stuck_downloads(
+                show_queue, now, max_hours, self.sonarr, "cleared_stuck_downloads_shows")
+
+        self.publish_status({})
+
+    def _clear_stuck_downloads(self, queue_items, now, max_hours, client, state_field):
+        stuck = core_queue.find_stuck_downloads(queue_items, now, max_hours)
+        for item in stuck:
+            if self._dry_run():
+                self._log_event(f"[dry_run] Would clear stuck download: {item['title']!r} "
+                                 f"({item['stuck_reason']}).")
+                continue
+            try:
+                client.remove_queue_item(item["id"])
+            except (RadarrError, SonarrError) as exc:
+                self._log_event(f"Could not clear stuck download {item['title']!r}: {exc}",
+                                 level="error")
+                continue
+            self._log_event(f"Cleared stuck download ({item['stuck_reason']}): {item['title']!r} "
+                             "— blocklisted, Radarr/Sonarr will search for a replacement.")
+            entry = {"title": item["title"], "reason": item["stuck_reason"],
+                     "cleared_at": now.isoformat()}
+            current = getattr(self.state_data, state_field)
+            setattr(self.state_data, state_field, ([entry] + current)[:10])
+        if stuck:
+            self._save_state()
 
     # ------------------------------------------------------------------
     # DUPLICATE MEDIA SCAN (read-only, report-only)
@@ -1768,6 +1839,7 @@ class Yarr(hass.Hass):
             "last_search_results": self.state_data.last_search_results,
             "last_search_at": self.state_data.last_search_at,
             "allow_library_delete": self.cfg.allow_library_delete,
+            "cleared_stuck_downloads": self.state_data.cleared_stuck_downloads[:10],
         }
         if self.cfg.tv_enabled:
             attrs.update({
@@ -1783,6 +1855,7 @@ class Yarr(hass.Hass):
                 "library_shows": self.state_data.library_shows[:2000],
                 "library_show_count": len(self.state_data.library_shows),
                 "bogus_shows": core_library.find_bogus_series(self.state_data.library_shows),
+                "cleared_stuck_downloads_shows": self.state_data.cleared_stuck_downloads_shows[:10],
             })
         if self.cfg.media_scan_enabled:
             attrs.update({

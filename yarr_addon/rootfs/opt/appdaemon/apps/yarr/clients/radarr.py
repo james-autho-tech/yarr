@@ -72,6 +72,32 @@ class RadarrClient:
             "added": m.get("added"),
         } for m in (movies or [])]
 
+    def get_queue(self) -> list:
+        """Radarr's own Activity/Queue listing — used to find stuck/dead
+        downloads (see core/queue.py). Response shape varies by version:
+        some return a bare list, others {"records": [...]}."""
+        _, body = self._request("GET", "/queue?pageSize=250")
+        records = (body or {}).get("records") if isinstance(body, dict) else body
+        return [{
+            "id": r["id"], "title": r.get("title") or "",
+            "added": r.get("added"),
+            "status": r.get("status"),
+            "tracked_download_status": r.get("trackedDownloadStatus"),
+            "error_message": r.get("errorMessage") or
+                             "; ".join(m.get("title", "") for m in r.get("statusMessages", [])),
+        } for r in (records or [])]
+
+    def remove_queue_item(self, queue_id: int, blocklist: bool = True) -> None:
+        """Removes a queue entry, cancels it in the download client, and
+        (with blocklist=True) tells Radarr never to grab that release
+        again and to search for a replacement immediately — the same
+        single call as manually pressing Remove+Blocklist in the
+        Activity/Queue UI."""
+        self._request(
+            "DELETE",
+            f"/queue/{queue_id}?removeFromClient=true&blocklist={'true' if blocklist else 'false'}"
+            "&skipRedownload=false")
+
     def resolve_quality_profile_id(self, name: str) -> int:
         _, body = self._request("GET", "/qualityprofile")
         for p in body or []:

@@ -452,6 +452,47 @@ Space Now** to check immediately instead of waiting for the next
 scheduled check; if usage drops back under the threshold, the candidate
 list clears itself automatically.
 
+## Stuck/dead download cleanup
+
+Some NZBs have dead links — missing articles, or a fake release from the
+indexer — and never resolve. Radarr's/Sonarr's own queue just shows them
+as "downloading" forever, even with their own stalled-download settings
+enabled, since nothing ever explicitly tells them the download failed.
+
+Every 30 minutes, yArr checks each configured medium's own Activity/
+Queue (`GET /queue` on Radarr and, if `tv_enabled`, Sonarr) and clears
+anything that's either:
+
+- **Already flagged as errored** by Radarr/Sonarr itself (`trackedDownloadStatus`
+  is `error`, or the queue status is `failed`/`warning`) — cleared
+  immediately regardless of age, or
+- **Simply been queued longer than `stuck_download_max_hours`** (default
+  12, Settings-tab editable) with no error reported at all — a genuinely
+  dead-but-silent download.
+
+"Clearing" means Radarr's/Sonarr's own Queue API: remove the item,
+cancel it in the download client, and blocklist the release so it's
+never grabbed again — the exact same single call as manually pressing
+**Remove** with **Blocklist** checked in the Activity/Queue UI. Radarr/
+Sonarr then searches for a replacement release automatically. **This
+never talks to SABnzbd directly** — SABnzbd monitoring elsewhere in
+yArr stays exactly as read-only as documented; this is entirely a
+Radarr/Sonarr-side action.
+
+Turn it off with the **Auto-clean stuck downloads** toggle in the
+Settings tab, and every cleared item is logged (Log tab) plus kept in a
+short "Recently auto-cleared stuck downloads" history on the Movies/TV
+tabs (last 10, newest first) so you can see what happened after the
+fact. Respects `dry_run` fully — logs what it would clear without
+touching anything.
+
+**Recommended on a new install**: turn on `dry_run` for the first day
+and watch the Log tab before trusting this live. Radarr's/Sonarr's
+`/queue` response shape (particularly whether an `added` timestamp is
+present at all) has varied across versions — `dry_run` lets you confirm
+it's flagging what you'd expect before it starts actually removing
+anything.
+
 ## Troubleshooting
 
 - **"Surprise Me Now" (or the webhook, or the keep-it toggle) does

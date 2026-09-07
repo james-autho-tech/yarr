@@ -70,6 +70,32 @@ class SonarrClient:
             "added": s.get("added"),
         } for s in (series_list or []) if s.get("tvdbId")]
 
+    def get_queue(self) -> list:
+        """Sonarr's own Activity/Queue listing — mirrors
+        radarr.get_queue(); used to find stuck/dead downloads (see
+        core/queue.py)."""
+        _, body = self._request("GET", "/queue?pageSize=250")
+        records = (body or {}).get("records") if isinstance(body, dict) else body
+        return [{
+            "id": r["id"], "title": r.get("title") or "",
+            "added": r.get("added"),
+            "status": r.get("status"),
+            "tracked_download_status": r.get("trackedDownloadStatus"),
+            "error_message": r.get("errorMessage") or
+                             "; ".join(m.get("title", "") for m in r.get("statusMessages", [])),
+        } for r in (records or [])]
+
+    def remove_queue_item(self, queue_id: int, blocklist: bool = True) -> None:
+        """Removes a queue entry, cancels it in the download client, and
+        (with blocklist=True) tells Sonarr never to grab that release
+        again and to search for a replacement immediately — the same
+        single call as manually pressing Remove+Blocklist in the
+        Activity/Queue UI."""
+        self._request(
+            "DELETE",
+            f"/queue/{queue_id}?removeFromClient=true&blocklist={'true' if blocklist else 'false'}"
+            "&skipRedownload=false")
+
     def resolve_quality_profile_id(self, name: str) -> int:
         _, body = self._request("GET", "/qualityprofile")
         for p in body or []:

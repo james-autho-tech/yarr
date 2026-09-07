@@ -31,6 +31,8 @@ TOGGLE_SETTINGS = {
                                     "yArr: Surprises need Accept/Deny", "mdi:check-decagram-outline"),
     "learn-genres": ("input_boolean.yarr_learn_genres_from_library",
                       "yArr: Learn genres from library", "mdi:brain"),
+    "stuck-download-cleanup": ("input_boolean.yarr_stuck_download_cleanup_enabled",
+                                "yArr: Auto-clean stuck downloads", "mdi:download-off-outline"),
 }
 
 # Same allow-list principle as TOGGLE_SETTINGS above, generalized to list
@@ -52,6 +54,8 @@ NUMBER_SETTINGS = {
     "tv-min-rating": ("input_number.yarr_tv_min_rating", "Minimum rating (TV)", 0, 10, 0.1),
     "tv-max-suggestions": ("input_number.yarr_tv_max_suggestions_per_run",
                             "Max suggestions per run (TV)", 1, 20, 1),
+    "stuck-download-hours": ("input_number.yarr_stuck_download_max_hours",
+                              "Stuck download threshold (hours)", 1, 168, 1),
 }
 
 
@@ -145,6 +149,8 @@ def build_status():
         "tv_surprise_enabled": is_on(states.get("input_boolean.yarr_tv_surprise_enabled")),
         "surprise_requires_approval": is_on(states.get("input_boolean.yarr_surprise_requires_approval")),
         "learn_genres_from_library": is_on(states.get("input_boolean.yarr_learn_genres_from_library")),
+        "stuck_download_cleanup_enabled": is_on(
+            states.get("input_boolean.yarr_stuck_download_cleanup_enabled")),
 
         # Same staleness reasoning as the five booleans above — these are
         # the Settings tab's own editors, so they must reflect a just-made
@@ -158,6 +164,8 @@ def build_status():
         "max_suggestions_per_run": number_value(states.get("input_number.yarr_max_suggestions_per_run"), 3),
         "tv_min_rating": number_value(states.get("input_number.yarr_tv_min_rating"), 7.0),
         "tv_max_suggestions_per_run": number_value(states.get("input_number.yarr_tv_max_suggestions_per_run"), 3),
+        "stuck_download_max_hours": number_value(
+            states.get("input_number.yarr_stuck_download_max_hours"), 12.0),
 
         "excluded_genres": attrs.get("excluded_genres", []),
         "effective_genres": attrs.get("effective_genres", []),
@@ -171,6 +179,7 @@ def build_status():
         "surprises": attrs.get("surprises", []),
         "pending_surprise": attrs.get("pending_surprise"),
         "blocked_movies": attrs.get("blocked_movies", []),
+        "cleared_stuck_downloads": attrs.get("cleared_stuck_downloads", []),
 
         "tv_enabled": attrs.get("tv_enabled", False),
         "suggested_shows_count": attrs.get("suggested_shows_count", 0),
@@ -183,6 +192,7 @@ def build_status():
         "surprise_shows": attrs.get("surprise_shows", []),
         "pending_tv_surprise": attrs.get("pending_tv_surprise"),
         "blocked_shows": attrs.get("blocked_shows", []),
+        "cleared_stuck_downloads_shows": attrs.get("cleared_stuck_downloads_shows", []),
 
         "sabnzbd_enabled": attrs.get("sabnzbd_enabled", False),
         "sabnzbd_status": sab.get("state", "unknown"),
@@ -673,6 +683,13 @@ function suggestedTable(rows) {
   </tbody></table>`;
 }
 
+function clearedDownloadsTable(rows) {
+  if (!rows || !rows.length) return '<div class="empty-row">None cleared yet.</div>';
+  return `<table class="list"><thead><tr><th>Title</th><th>Reason</th><th>Cleared</th></tr></thead><tbody>
+    ${rows.map(r => `<tr><td class="title-cell">${esc(r.title)}</td><td>${esc(r.reason)}</td><td class="year">${fmtDate(r.cleared_at)}</td></tr>`).join('')}
+  </tbody></table>`;
+}
+
 function surpriseTable(rows, deleteFn) {
   if (!rows || !rows.length) return '<div class="empty-row">No surprise tracked right now.</div>';
   return `<table class="list"><thead><tr><th>Title</th><th>Year</th><th>Status</th><th></th><th></th></tr></thead><tbody>
@@ -914,6 +931,8 @@ async function refresh() {
     ${suggestedTable(d.recent_suggested)}
     <div class="section-note" style="margin:16px 0 6px">Tracked surprises</div>
     ${surpriseTable(d.surprises, 'deleteSurprise')}
+    <div class="section-note" style="margin:16px 0 6px">Recently auto-cleared stuck downloads</div>
+    ${clearedDownloadsTable(d.cleared_stuck_downloads)}
   `;
 
   document.getElementById('blocked-movies-list').innerHTML = blockedTable(d.blocked_movies, 'unblockMovie');
@@ -951,6 +970,8 @@ async function refresh() {
       ${suggestedTable(d.recent_suggested_shows)}
       <div class="section-note" style="margin:16px 0 6px">Tracked surprises</div>
       ${surpriseTable(d.surprise_shows, 'deleteTvSurprise')}
+      <div class="section-note" style="margin:16px 0 6px">Recently auto-cleared stuck downloads</div>
+      ${clearedDownloadsTable(d.cleared_stuck_downloads_shows)}
     `;
   }
 
@@ -1099,6 +1120,10 @@ async function refresh() {
     + settingsRow('surprise-requires-approval', 'Surprises need Accept/Deny',
       'When on, a surprise pick is proposed in the web UI and never touches Radarr/Sonarr until you Accept it. When off, surprises are added immediately, same as genre auto-add.',
       d.surprise_requires_approval)
+    + settingsRow('stuck-download-cleanup', 'Auto-clean stuck downloads',
+      'Removes and blocklists a Radarr/Sonarr queue item once Radarr/Sonarr flags it as errored, or once it has been queued longer than the threshold below (a dead NZB with missing articles never resolves on its own) — Radarr/Sonarr then searches for a replacement automatically. Never touches SABnzbd directly.',
+      d.stuck_download_cleanup_enabled)
+    + numberSettingEditor('stuck-download-hours', 'Stuck download threshold (hours)', d.stuck_download_max_hours, 1)
     + `<div class="section-note" style="margin:20px 0 6px">Movie genres</div>`
     + genreListEditor('genres', 'Movie genres', d.genres_editable, false)
     + genreListEditor('excluded-genres', 'Never suggest (movies + TV)', d.excluded_genres_editable, false)

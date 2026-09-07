@@ -182,6 +182,14 @@ class YarrState:
     last_search_results: list = field(default_factory=list)
     last_search_at: str = None
 
+    # Stuck/dead download cleanup (see yarr.py's tick_stuck_downloads /
+    # core/queue.find_stuck_downloads) — a short history of what got
+    # auto-removed+blocklisted, newest first, capped at 10. Read-only by
+    # the time it appears here; the item is already gone from
+    # Radarr's/Sonarr's queue.
+    cleared_stuck_downloads: list = field(default_factory=list)
+    cleared_stuck_downloads_shows: list = field(default_factory=list)
+
 
 def _film_to_dict(film):
     return asdict(film)
@@ -255,6 +263,8 @@ def load(path: str) -> YarrState:
         cycle_check_at=raw.get("cycle_check_at"),
         disk_used_pct=raw.get("disk_used_pct"),
         disk_free_gb=raw.get("disk_free_gb"),
+        cleared_stuck_downloads=list(raw.get("cleared_stuck_downloads", [])),
+        cleared_stuck_downloads_shows=list(raw.get("cleared_stuck_downloads_shows", [])),
     )
 
 
@@ -296,6 +306,8 @@ def save(state: YarrState, path: str) -> None:
         "cycle_check_at": state.cycle_check_at,
         "disk_used_pct": state.disk_used_pct,
         "disk_free_gb": state.disk_free_gb,
+        "cleared_stuck_downloads": state.cleared_stuck_downloads,
+        "cleared_stuck_downloads_shows": state.cleared_stuck_downloads_shows,
     }
     try:
         with open(path, "w") as f:

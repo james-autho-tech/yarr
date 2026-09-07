@@ -76,6 +76,16 @@ monitoring — bundling its own AppDaemon runtime.
   once), and refreshes Jellyfin's library afterward. Every delete
   cleans up any now-empty folder left behind and triggers a
   Radarr/Sonarr rescan.
+- **Stuck/dead download cleanup**: a dead NZB (missing articles, a fake
+  release) can sit in Radarr's/Sonarr's own queue "downloading" forever,
+  even with their own stalled-download settings on. Every 30 minutes
+  yArr clears anything Radarr/Sonarr itself already flagged as errored,
+  or that's simply been queued past a configurable threshold (Settings
+  tab, default 12h) — removing it, blocklisting the release, and letting
+  Radarr/Sonarr search for a replacement, the same single call as
+  pressing Remove+Blocklist yourself. Never touches SABnzbd directly.
+  Toggle it off in Settings; every clear is logged and kept in a short
+  history on the Movies/TV tabs.
 
 TV/Sonarr, SABnzbd, and the media cleanup scan are all entirely opt-in —
 leave their Configuration-tab fields / apps.yaml paths blank to run

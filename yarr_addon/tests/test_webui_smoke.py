@@ -59,6 +59,8 @@ BASE_STATUS_ATTRS = {
     "pending_surprise": None,
     "blocked_movies": [{"id": 321, "title": "Rejected Film", "year": 2015,
                          "blocked_at": "2026-08-30T10:00:00+00:00"}],
+    "cleared_stuck_downloads": [{"title": "Some.Dead.Release.2024", "reason": "error",
+                                  "cleared_at": "2026-08-30T09:00:00+00:00"}],
     "tv_enabled": True,
     "suggested_shows_count": 2,
     "surprise_shows_count": 1,
@@ -70,6 +72,8 @@ BASE_STATUS_ATTRS = {
     "pending_tv_surprise": None,
     "blocked_shows": [{"id": 654, "title": "Rejected Show", "year": 2016,
                         "blocked_at": "2026-08-30T10:00:00+00:00"}],
+    "cleared_stuck_downloads_shows": [{"title": "Some.Dead.Show.Release.S01E01", "reason": "stalled",
+                                        "cleared_at": "2026-08-30T09:00:00+00:00"}],
     "sabnzbd_enabled": True,
     "media_scan_enabled": True,
     "duplicate_groups": [[
@@ -158,6 +162,7 @@ class FakeBackend:
             "input_boolean.yarr_tv_surprise_enabled": {"state": "on"},
             "input_boolean.yarr_surprise_requires_approval": {"state": "on"},
             "input_boolean.yarr_learn_genres_from_library": {"state": "off"},
+            "input_boolean.yarr_stuck_download_cleanup_enabled": {"state": "on"},
             "input_text.yarr_genres": {"state": "set", "attributes": {"value": ["action", "comedy"]}},
             "input_text.yarr_excluded_genres": {"state": "set", "attributes": {"value": ["horror"]}},
             "input_text.yarr_surprise_genres": {"state": "set", "attributes": {"value": None}},
@@ -167,6 +172,7 @@ class FakeBackend:
             "input_number.yarr_max_suggestions_per_run": {"state": "3"},
             "input_number.yarr_tv_min_rating": {"state": "7.0"},
             "input_number.yarr_tv_max_suggestions_per_run": {"state": "3"},
+            "input_number.yarr_stuck_download_max_hours": {"state": "12"},
         }
 
     def fire_event(self, event_type, data=None):
@@ -391,6 +397,9 @@ def test_settings_toggles_fire_and_do_not_crash(browser_page):
         settings.locator(".settings-row", has_text="Genre auto-add (movies)").get_by_role(
             "button", name="Off", exact=True).click()
         page.wait_for_timeout(1200)
+        settings.locator(".settings-row", has_text="Auto-clean stuck downloads").get_by_role(
+            "button", name="Off", exact=True).click()
+        page.wait_for_timeout(1200)
 
         assert errors == []
         fired_names = [e for e, _ in backend.fired]
@@ -398,6 +407,7 @@ def test_settings_toggles_fire_and_do_not_crash(browser_page):
         assert "set_state:input_boolean.yarr_learn_genres_from_library" in fired_names
         assert "set_state:input_boolean.yarr_surprise_requires_approval" in fired_names
         assert "set_state:input_boolean.yarr_genre_auto_add_enabled" in fired_names
+        assert "set_state:input_boolean.yarr_stuck_download_cleanup_enabled" in fired_names
     finally:
         httpd.shutdown()
 

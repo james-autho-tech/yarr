@@ -29,6 +29,16 @@ def test_tv_genre_auto_add_enabled_default_true_and_parsed():
     assert cfg.tv_genre_auto_add_enabled is False
 
 
+def test_stuck_download_cleanup_defaults_and_parsed():
+    cfg = build_config({}, {})
+    assert cfg.stuck_download_cleanup_enabled is True
+    assert cfg.stuck_download_max_hours == 12.0
+    cfg = build_config({"stuck_download_cleanup_enabled": False,
+                         "stuck_download_max_hours": 6}, {})
+    assert cfg.stuck_download_cleanup_enabled is False
+    assert cfg.stuck_download_max_hours == 6.0
+
+
 def test_tmdb_pages_default_and_parsed():
     assert build_config({}, {}).tmdb_pages == 3
     cfg = build_config({"tmdb_pages": 5}, {})

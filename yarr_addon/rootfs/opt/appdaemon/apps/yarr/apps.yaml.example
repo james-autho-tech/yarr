@@ -10,8 +10,9 @@
 #
 # dry_run, genre_auto_add_enabled, tv_genre_auto_add_enabled,
 # surprise_enabled, tv_surprise_enabled,
-# surprise_requires_approval, learn_genres_from_library, the genre lists
-# (genres/tv_genres/excluded_genres/surprise_genres/tv_surprise_genres),
+# surprise_requires_approval, learn_genres_from_library,
+# stuck_download_cleanup_enabled, stuck_download_max_hours, the genre
+# lists (genres/tv_genres/excluded_genres/surprise_genres/tv_surprise_genres),
 # and min_rating/max_suggestions_per_run (+ tv_ equivalents) are all now
 # live-editable in the web UI's Settings tab instead of apps.yaml-only
 # settings — the values below only ever seed each one's state the FIRST
@@ -190,6 +191,17 @@ yarr:
   low_space_threshold_pct: 90
   cycle_candidates_count: 20
   space_check_interval_hours: 6
+
+  # --- Stuck/dead download cleanup — a dead NZB (missing articles, a
+  # fake release) can sit in Radarr's/Sonarr's own queue "downloading"
+  # forever. Every 30 min, yArr clears anything already flagged as
+  # errored, or queued longer than stuck_download_max_hours, via
+  # Radarr's/Sonarr's own Queue API (remove + blocklist + let it search
+  # for a replacement) — never touches SABnzbd directly. Both fields are
+  # now Settings-tab editable; the values below only ever seed them the
+  # first time the add-on creates the underlying entity. See DOCS.md.
+  stuck_download_cleanup_enabled: true
+  stuck_download_max_hours: 12
 
   # If true, discovery/surprise picks are computed and logged but never
   # actually added to Radarr/Sonarr — useful for checking your genre/

@@ -128,6 +128,16 @@ class YarrConfig:
     cycle_candidates_count: int = 20
     space_check_interval_hours: float = 6.0
 
+    # Stuck/dead download cleanup: some NZBs have dead links (missing
+    # articles, a fake release) and never resolve — Radarr/Sonarr's own
+    # queue just sits there "downloading" forever. yArr checks each
+    # medium's queue on a tick, and removes+blocklists (letting
+    # Radarr/Sonarr search for a replacement) anything Radarr/Sonarr
+    # itself already flagged as errored, or that's simply been queued
+    # longer than stuck_download_max_hours. See core/queue.py.
+    stuck_download_cleanup_enabled: bool = True
+    stuck_download_max_hours: float = 12.0
+
     # --- addon_secrets.json (config.yaml options — never in apps.yaml) ---
     radarr_url: str = ""
     radarr_api_key: str = ""
@@ -234,6 +244,8 @@ def build_config(apps_yaml_dict: dict, secrets_dict: dict) -> YarrConfig:
         low_space_threshold_pct=float(a.get("low_space_threshold_pct", 90.0)),
         cycle_candidates_count=int(a.get("cycle_candidates_count", 20)),
         space_check_interval_hours=float(a.get("space_check_interval_hours", 6.0)),
+        stuck_download_cleanup_enabled=bool(a.get("stuck_download_cleanup_enabled", True)),
+        stuck_download_max_hours=float(a.get("stuck_download_max_hours", 12.0)),
 
         radarr_url=str(s.get("radarr_url", "")),
         radarr_api_key=str(s.get("radarr_api_key", "")),

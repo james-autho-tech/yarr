@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.22.0
+
+- Added **automatic stuck/dead download cleanup**: every 30 minutes,
+  yArr checks Radarr's/Sonarr's own Activity/Queue and clears anything
+  already flagged as errored, or queued longer than
+  `stuck_download_max_hours` (default 12h, Settings-tab editable) — a
+  dead NZB with missing articles never resolves on its own, even with
+  Radarr's/Sonarr's own stalled-download settings enabled. Clearing
+  removes the item, blocklists the release, and lets Radarr/Sonarr
+  search for a replacement — the same single call as manually pressing
+  Remove+Blocklist. Never touches SABnzbd directly (its own monitoring
+  stays read-only, as documented). New **Auto-clean stuck downloads**
+  Settings-tab toggle; every clear is logged and kept in a short
+  "Recently auto-cleared stuck downloads" history on the Movies/TV tabs.
+
 ## 0.21.0
 
 - Added **Suspicious Series** detection to the Library tab: flags Sonarr
