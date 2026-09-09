@@ -203,6 +203,15 @@ yarr:
   stuck_download_cleanup_enabled: true
   stuck_download_max_hours: 12
 
+  # --- Calendar tab: upcoming movie releases + TV episode air dates
+  # across your whole library. Read-only mirror of Radarr's/Sonarr's own
+  # Calendar data. The fetch window (days back/forward from today) and
+  # refresh cadence — not a live behaviour toggle, so these stay
+  # apps.yaml-only rather than Settings-tab editable. See DOCS.md.
+  calendar_window_days_past: 30
+  calendar_window_days_future: 90
+  calendar_refresh_interval_hours: 6
+
   # If true, discovery/surprise picks are computed and logged but never
   # actually added to Radarr/Sonarr — useful for checking your genre/
   # rating settings are producing sensible picks before trusting it

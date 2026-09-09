@@ -39,6 +39,18 @@ def test_stuck_download_cleanup_defaults_and_parsed():
     assert cfg.stuck_download_max_hours == 6.0
 
 
+def test_calendar_defaults_and_parsed():
+    cfg = build_config({}, {})
+    assert cfg.calendar_window_days_past == 30
+    assert cfg.calendar_window_days_future == 90
+    assert cfg.calendar_refresh_interval_hours == 6.0
+    cfg = build_config({"calendar_window_days_past": 7, "calendar_window_days_future": 14,
+                         "calendar_refresh_interval_hours": 2}, {})
+    assert cfg.calendar_window_days_past == 7
+    assert cfg.calendar_window_days_future == 14
+    assert cfg.calendar_refresh_interval_hours == 2.0
+
+
 def test_tmdb_pages_default_and_parsed():
     assert build_config({}, {}).tmdb_pages == 3
     cfg = build_config({"tmdb_pages": 5}, {})

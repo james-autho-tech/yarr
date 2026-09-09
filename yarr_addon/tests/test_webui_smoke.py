@@ -61,6 +61,13 @@ BASE_STATUS_ATTRS = {
                          "blocked_at": "2026-08-30T10:00:00+00:00"}],
     "cleared_stuck_downloads": [{"title": "Some.Dead.Release.2024", "reason": "error",
                                   "cleared_at": "2026-08-30T09:00:00+00:00"}],
+    "calendar_entries": [
+        {"date": "2026-09-10", "type": "movie", "title": "Some Upcoming Movie",
+         "subtitle": "Digital Release", "available": False},
+        {"date": "2026-09-12", "type": "episode", "title": "Some Show",
+         "subtitle": "S02E03 — The Episode", "available": False},
+    ],
+    "calendar_synced_at": "2026-08-30T09:00:00+00:00",
     "tv_enabled": True,
     "suggested_shows_count": 2,
     "surprise_shows_count": 1,
@@ -218,7 +225,7 @@ def test_page_loads_all_tabs_no_errors(browser_page):
     try:
         page.goto(f"http://127.0.0.1:{port}/")
         page.wait_for_selector("#library-search-input")
-        for tab in ["Library", "Movies", "TV", "Blocked", "SABnzbd", "Cleanup", "Settings", "Log"]:
+        for tab in ["Library", "Movies", "TV", "Calendar", "Blocked", "SABnzbd", "Cleanup", "Settings", "Log"]:
             page.click(f"button.tab-btn:has-text('{tab}')")
         assert errors == []
     finally:
@@ -339,6 +346,34 @@ def test_suspicious_series_delete(browser_page):
         assert errors == []
         fired_names = [e for e, _ in backend.fired]
         assert "yarr_library_delete_show" in fired_names
+    finally:
+        httpd.shutdown()
+
+
+def test_calendar_navigation_and_refresh(browser_page):
+    page, errors = browser_page
+    backend = FakeBackend()
+    httpd, port = start_server(backend)
+    try:
+        page.goto(f"http://127.0.0.1:{port}/")
+        page.wait_for_selector("#library-search-input")
+        page.click("button.tab-btn:has-text('Calendar')")
+        calendar = page.locator("#calendar-section")
+        page.wait_for_selector(".cal-grid")
+
+        calendar.get_by_role("button", name="Next", exact=False).click()
+        page.wait_for_timeout(300)
+        calendar.get_by_role("button", name="Prev", exact=False).click()
+        page.wait_for_timeout(300)
+        calendar.get_by_role("button", name="Today", exact=True).click()
+        page.wait_for_timeout(300)
+
+        calendar.get_by_role("button", name="Refresh Calendar", exact=True).click()
+        page.wait_for_timeout(1200)
+
+        assert errors == []
+        fired_names = [e for e, _ in backend.fired]
+        assert "yarr_refresh_calendar" in fired_names
     finally:
         httpd.shutdown()
 

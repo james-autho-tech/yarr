@@ -190,6 +190,13 @@ class YarrState:
     cleared_stuck_downloads: list = field(default_factory=list)
     cleared_stuck_downloads_shows: list = field(default_factory=list)
 
+    # Calendar tab (see yarr.py's tick_refresh_calendar /
+    # core/calendar.merge_calendar_entries) — upcoming movie release
+    # dates + TV episode air dates across the whole library, refreshed
+    # periodically and on demand.
+    calendar_entries: list = field(default_factory=list)
+    calendar_synced_at: str = None
+
 
 def _film_to_dict(film):
     return asdict(film)
@@ -265,6 +272,8 @@ def load(path: str) -> YarrState:
         disk_free_gb=raw.get("disk_free_gb"),
         cleared_stuck_downloads=list(raw.get("cleared_stuck_downloads", [])),
         cleared_stuck_downloads_shows=list(raw.get("cleared_stuck_downloads_shows", [])),
+        calendar_entries=list(raw.get("calendar_entries", [])),
+        calendar_synced_at=raw.get("calendar_synced_at"),
     )
 
 
@@ -308,6 +317,8 @@ def save(state: YarrState, path: str) -> None:
         "disk_free_gb": state.disk_free_gb,
         "cleared_stuck_downloads": state.cleared_stuck_downloads,
         "cleared_stuck_downloads_shows": state.cleared_stuck_downloads_shows,
+        "calendar_entries": state.calendar_entries,
+        "calendar_synced_at": state.calendar_synced_at,
     }
     try:
         with open(path, "w") as f:

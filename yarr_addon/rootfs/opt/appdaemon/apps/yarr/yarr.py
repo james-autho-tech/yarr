@@ -15,6 +15,7 @@ from core import dupes as core_dupes
 from core import junk as core_junk
 from core import library as core_library
 from core import queue as core_queue
+from core import calendar as core_calendar
 
 from clients.tmdb import TMDBClient, TMDBError
 from clients.radarr import RadarrClient, RadarrError
@@ -98,6 +99,7 @@ class Yarr(hass.Hass):
         self.listen_event(self.on_search_media, "yarr_search_media")
         self.listen_event(self.on_request_add_movie, "yarr_request_add_movie")
         self.listen_event(self.on_refresh_library_pressed, "yarr_refresh_library")
+        self.listen_event(self.on_refresh_calendar_pressed, "yarr_refresh_calendar")
         self.listen_event(self.on_library_delete_movie, "yarr_library_delete_movie")
         if self.cfg.tv_enabled:
             self.listen_event(self.on_request_add_show, "yarr_request_add_show")
@@ -117,6 +119,7 @@ class Yarr(hass.Hass):
             self.run_every(self.tick_scan_duplicates, "now", self.cfg.media_scan_interval_hours * 3600)
             self.run_every(self.tick_check_space, "now", self.cfg.space_check_interval_hours * 3600)
         self.run_every(self.tick_refresh_library, "now", self.cfg.library_refresh_interval_hours * 3600)
+        self.run_every(self.tick_refresh_calendar, "now", self.cfg.calendar_refresh_interval_hours * 3600)
         self.run_every(self.publish_status, "now", 60)
 
         self._log_event(f"yArr v{VERSION} started"
@@ -1501,6 +1504,30 @@ class Yarr(hass.Hass):
         self.tick_refresh_library({})
         self.publish_status({})
 
+    def tick_refresh_calendar(self, kwargs):
+        """Calendar tab: upcoming movie release dates + TV episode air
+        dates across the whole library (not just what yArr itself
+        suggested) — a read-only mirror of Radarr's/Sonarr's own
+        Calendar data, no new write capability."""
+        if self.missing_secrets:
+            return
+        now = datetime.now(timezone.utc)
+        start = (now - timedelta(days=self.cfg.calendar_window_days_past)).strftime("%Y-%m-%d")
+        end = (now + timedelta(days=self.cfg.calendar_window_days_future)).strftime("%Y-%m-%d")
+        try:
+            movies = self.radarr.get_calendar(start, end)
+            episodes = self.sonarr.get_calendar(start, end) if self.cfg.tv_enabled else []
+        except (RadarrError, SonarrError) as exc:
+            self._log_event(f"Calendar refresh failed: {exc}", level="error")
+            return
+        self.state_data.calendar_entries = core_calendar.merge_calendar_entries(movies, episodes)
+        self.state_data.calendar_synced_at = now.isoformat()
+        self._save_state()
+
+    def on_refresh_calendar_pressed(self, event_name, data, kwargs):
+        self.tick_refresh_calendar({})
+        self.publish_status({})
+
     def tick_check_space(self, kwargs):
         """Free Up Space: checks real disk usage on the media mount and,
         only when it crosses low_space_threshold_pct, ranks the library's
@@ -1840,6 +1867,8 @@ class Yarr(hass.Hass):
             "last_search_at": self.state_data.last_search_at,
             "allow_library_delete": self.cfg.allow_library_delete,
             "cleared_stuck_downloads": self.state_data.cleared_stuck_downloads[:10],
+            "calendar_entries": self.state_data.calendar_entries[:1000],
+            "calendar_synced_at": self.state_data.calendar_synced_at,
         }
         if self.cfg.tv_enabled:
             attrs.update({

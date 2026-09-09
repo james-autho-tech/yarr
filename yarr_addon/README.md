@@ -86,6 +86,11 @@ monitoring — bundling its own AppDaemon runtime.
   pressing Remove+Blocklist yourself. Never touches SABnzbd directly.
   Toggle it off in Settings; every clear is logged and kept in a short
   history on the Movies/TV tabs.
+- **Calendar**: a month-grid calendar of upcoming movie releases (in
+  cinemas, digital, physical — tracked separately) and TV episode air
+  dates across your whole library, with already-downloaded entries
+  shown in green. Prev/Next/Today navigation is instant, no
+  Radarr/Sonarr round-trip per click.
 
 TV/Sonarr, SABnzbd, and the media cleanup scan are all entirely opt-in —
 leave their Configuration-tab fields / apps.yaml paths blank to run

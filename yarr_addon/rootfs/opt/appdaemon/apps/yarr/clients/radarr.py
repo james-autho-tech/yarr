@@ -98,6 +98,27 @@ class RadarrClient:
             f"/queue/{queue_id}?removeFromClient=true&blocklist={'true' if blocklist else 'false'}"
             "&skipRedownload=false")
 
+    def get_calendar(self, start: str, end: str) -> list:
+        """Radarr's own Calendar data — one entry per release-date type
+        (inCinemas/digitalRelease/physicalRelease) that falls in [start,
+        end], since a single movie can have distinct dates for each.
+        unmonitored=false excludes movies you're not tracking."""
+        _, movies = self._request(
+            "GET", f"/calendar?start={start}&end={end}&unmonitored=false")
+        entries = []
+        for m in (movies or []):
+            for field, label in (("inCinemas", "In Cinemas"),
+                                  ("digitalRelease", "Digital Release"),
+                                  ("physicalRelease", "Physical Release")):
+                date = m.get(field)
+                if date and start <= date[:10] <= end:
+                    entries.append({
+                        "date": date, "title": m.get("title", ""),
+                        "release_type": label,
+                        "has_file": bool(m.get("hasFile", False)),
+                    })
+        return entries
+
     def resolve_quality_profile_id(self, name: str) -> int:
         _, body = self._request("GET", "/qualityprofile")
         for p in body or []:

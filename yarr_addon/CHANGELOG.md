@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.23.0
+
+- Added a **Calendar** tab: a month-grid calendar of upcoming movie
+  releases (In Cinemas / Digital Release / Physical Release, tracked
+  separately) and TV episode air dates across your whole library — not
+  just what yArr itself suggested. Already-downloaded entries are shown
+  in green. Prev/Next/Today navigation is instant and client-side
+  within the cached fetch window (`calendar_window_days_past`/`_future`,
+  defaults 30 days back / 90 forward); refreshed every
+  `calendar_refresh_interval_hours` (default 6h) or on demand. Read-only
+  mirror of Radarr's/Sonarr's own Calendar data — no new write path.
+
 ## 0.22.1
 
 - **Fixed stuck-download detection (0.22.0 caught nothing on real

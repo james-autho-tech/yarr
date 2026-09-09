@@ -101,6 +101,21 @@ class SonarrClient:
             f"/queue/{queue_id}?removeFromClient=true&blocklist={'true' if blocklist else 'false'}"
             "&skipRedownload=false")
 
+    def get_calendar(self, start: str, end: str) -> list:
+        """Sonarr's own Calendar data — one entry per episode airing in
+        [start, end]. includeSeries=true embeds the series title so this
+        doesn't need a second lookup per episode."""
+        _, episodes = self._request(
+            "GET", f"/calendar?start={start}&end={end}&unmonitored=false&includeSeries=true")
+        return [{
+            "date": e.get("airDateUtc"),
+            "series_title": (e.get("series") or {}).get("title", ""),
+            "episode_title": e.get("title", ""),
+            "season_number": e.get("seasonNumber", 0),
+            "episode_number": e.get("episodeNumber", 0),
+            "has_file": bool(e.get("hasFile", False)),
+        } for e in (episodes or []) if e.get("airDateUtc")]
+
     def resolve_quality_profile_id(self, name: str) -> int:
         _, body = self._request("GET", "/qualityprofile")
         for p in body or []:

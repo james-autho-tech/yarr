@@ -514,6 +514,29 @@ it would clear and why, with no changes made, so you can confirm it
 matches what you'd expect (and rule out the stuck-import scenario above)
 before letting it actually remove anything.
 
+## Calendar
+
+A month-grid calendar showing upcoming movie releases and TV episode
+air dates across your **whole library** — every monitored movie/show in
+Radarr/Sonarr, not just what yArr itself suggested or surprised you
+with. Read-only mirror of Radarr's/Sonarr's own Calendar data; no new
+write capability.
+
+A movie can show up to three separate entries — **In Cinemas**,
+**Digital Release**, **Physical Release** — one per date type Radarr
+tracks for it, since these routinely land on different days. TV entries
+show `SxxExx` and the episode title. Anything already downloaded
+(`hasFile` on Radarr's/Sonarr's side) is shown in green; everything else
+is still pending.
+
+Refreshed every `calendar_refresh_interval_hours` (default 6h), or on
+demand with **Refresh Calendar**. The fetch window is
+`calendar_window_days_past`/`calendar_window_days_future` (defaults 30
+days back, 90 days forward) — **Prev/Next/Today** month navigation is
+instant and entirely client-side within that cached window, no
+Radarr/Sonarr round-trip per click; navigating outside the cached window
+just shows an empty month until the next refresh.
+
 ## Troubleshooting
 
 - **"Surprise Me Now" (or the webhook, or the keep-it toggle) does

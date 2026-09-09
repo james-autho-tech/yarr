@@ -138,6 +138,14 @@ class YarrConfig:
     stuck_download_cleanup_enabled: bool = True
     stuck_download_max_hours: float = 12.0
 
+    # Calendar tab: upcoming movie release dates + TV episode air dates
+    # across your whole library (see core/calendar.py). A fetch-window
+    # size, not a live behaviour toggle, so this stays apps.yaml-only
+    # rather than Settings-tab editable.
+    calendar_window_days_past: int = 30
+    calendar_window_days_future: int = 90
+    calendar_refresh_interval_hours: float = 6.0
+
     # --- addon_secrets.json (config.yaml options — never in apps.yaml) ---
     radarr_url: str = ""
     radarr_api_key: str = ""
@@ -246,6 +254,9 @@ def build_config(apps_yaml_dict: dict, secrets_dict: dict) -> YarrConfig:
         space_check_interval_hours=float(a.get("space_check_interval_hours", 6.0)),
         stuck_download_cleanup_enabled=bool(a.get("stuck_download_cleanup_enabled", True)),
         stuck_download_max_hours=float(a.get("stuck_download_max_hours", 12.0)),
+        calendar_window_days_past=int(a.get("calendar_window_days_past", 30)),
+        calendar_window_days_future=int(a.get("calendar_window_days_future", 90)),
+        calendar_refresh_interval_hours=float(a.get("calendar_refresh_interval_hours", 6.0)),
 
         radarr_url=str(s.get("radarr_url", "")),
         radarr_api_key=str(s.get("radarr_api_key", "")),

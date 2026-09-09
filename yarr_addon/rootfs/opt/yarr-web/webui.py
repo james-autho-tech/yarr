@@ -180,6 +180,8 @@ def build_status():
         "pending_surprise": attrs.get("pending_surprise"),
         "blocked_movies": attrs.get("blocked_movies", []),
         "cleared_stuck_downloads": attrs.get("cleared_stuck_downloads", []),
+        "calendar_entries": attrs.get("calendar_entries", []),
+        "calendar_synced_at": attrs.get("calendar_synced_at"),
 
         "tv_enabled": attrs.get("tv_enabled", False),
         "suggested_shows_count": attrs.get("suggested_shows_count", 0),
@@ -319,6 +321,22 @@ input.text-input:focus{outline:none;border-color:var(--accent)}
 .settings-label{font-weight:700;font-size:14px;color:var(--ink)}
 .settings-desc{font-size:12px;color:var(--faint);margin-top:3px;max-width:480px;line-height:1.5}
 .chip-x{margin-left:6px;cursor:pointer;font-weight:900}
+
+.cal-header{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.cal-month-label{font-weight:800;font-size:16px;flex:1}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;background:var(--edge)}
+.cal-dow{background:var(--bg);color:var(--sub);font-size:11px;font-weight:700;
+  text-transform:uppercase;padding:6px;text-align:center}
+.cal-day{background:var(--panel);min-height:90px;padding:6px;display:flex;
+  flex-direction:column;gap:3px;overflow:hidden}
+.cal-day-outside{opacity:.35}
+.cal-day-today{outline:2px solid var(--accent);outline-offset:-2px}
+.cal-day-num{font-size:12px;color:var(--sub);font-weight:700}
+.cal-entry{font-size:10px;padding:2px 5px;border-radius:3px;background:var(--edge);
+  color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cal-entry.cal-available{background:var(--ok);color:#06210e}
+.cal-entry.cal-movie{border-left:3px solid var(--accent)}
+.cal-entry.cal-episode{border-left:3px solid var(--sub)}
 .badge{font-size:11px;padding:3px 10px;border-radius:4px;font-weight:800;letter-spacing:.02em;
       text-transform:uppercase;background:var(--ok);color:#06210e}
 
@@ -434,6 +452,7 @@ button.small-delete:disabled:hover{color:var(--faint);border-color:var(--edge)}
   <button class="tab-btn" data-tab="library" onclick="selectTab('library')">Library</button>
   <button class="tab-btn" data-tab="movies" onclick="selectTab('movies')">Movies</button>
   <button class="tab-btn" data-tab="tv" id="nav-tv" style="display:none" onclick="selectTab('tv')">TV</button>
+  <button class="tab-btn" data-tab="calendar" onclick="selectTab('calendar')">Calendar</button>
   <button class="tab-btn" data-tab="blocked" onclick="selectTab('blocked')">Blocked</button>
   <button class="tab-btn" data-tab="sabnzbd" id="nav-sabnzbd" style="display:none" onclick="selectTab('sabnzbd')">SABnzbd</button>
   <button class="tab-btn" data-tab="dupes" id="nav-dupes" style="display:none" onclick="selectTab('dupes')">Cleanup</button>
@@ -484,6 +503,7 @@ button.small-delete:disabled:hover{color:var(--faint);border-color:var(--edge)}
   </section>
   <section id="movies-section" class="tab-page" data-tab="movies"></section>
   <section id="tv-section" class="tab-page" data-tab="tv"></section>
+  <section id="calendar-section" class="tab-page" data-tab="calendar"></section>
   <section id="blocked-section" class="tab-page" data-tab="blocked">
     <div class="section-head"><span class="section-title">Blocked</span></div>
     <div class="mode-line" style="margin-bottom:16px">Denying a surprise blocks that exact title
@@ -524,6 +544,7 @@ let lastLibraryShows = [];
 let lastCycleMovies = [];
 let lastCycleShows = [];
 let lastBogusShows = [];
+let calendarViewYear = null, calendarViewMonth = null;
 let searchMediaType = 'movie';
 let allowLibraryDelete = false;
 
@@ -688,6 +709,61 @@ function clearedDownloadsTable(rows) {
   return `<table class="list"><thead><tr><th>Title</th><th>Reason</th><th>Cleared</th></tr></thead><tbody>
     ${rows.map(r => `<tr><td class="title-cell">${esc(r.title)}</td><td>${esc(r.reason)}</td><td class="year">${fmtDate(r.cleared_at)}</td></tr>`).join('')}
   </tbody></table>`;
+}
+
+function fmtISODate(y, m, d) {
+  const dt = new Date(y, m, d);
+  return dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
+}
+function calendarDayCell(dateStr, entries, isCurrentMonth, isToday) {
+  const items = entries.filter(e => e.date.slice(0,10) === dateStr);
+  return `<div class="cal-day ${isCurrentMonth?'':'cal-day-outside'} ${isToday?'cal-day-today':''}">
+    <div class="cal-day-num">${parseInt(dateStr.slice(8,10),10)}</div>
+    ${items.map(e => `<div class="cal-entry cal-${e.type} ${e.available?'cal-available':''}"
+      title="${esc(e.title)} — ${esc(e.subtitle)}">${esc(e.title)}</div>`).join('')}
+  </div>`;
+}
+function renderCalendarGrid(entries) {
+  const year = calendarViewYear, month = calendarViewMonth;
+  const firstDow = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const daysInPrevMonth = new Date(year, month, 0).getDate();
+  const todayStr = new Date().toISOString().slice(0,10);
+  const cells = [];
+  for (let i = firstDow - 1; i >= 0; i--) {
+    const d = daysInPrevMonth - i;
+    cells.push(calendarDayCell(fmtISODate(year, month - 1, d), entries, false, false));
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = fmtISODate(year, month, d);
+    cells.push(calendarDayCell(dateStr, entries, true, dateStr === todayStr));
+  }
+  while (cells.length % 7 !== 0) {
+    const d = cells.length - (firstDow + daysInMonth) + 1;
+    cells.push(calendarDayCell(fmtISODate(year, month + 1, d), entries, false, false));
+  }
+  const monthLabel = new Date(year, month, 1).toLocaleDateString(undefined, {month:'long', year:'numeric'});
+  return `<div class="cal-header">
+      <button class="ghost" onclick="calendarNav(-1)">&lsaquo; Prev</button>
+      <span class="cal-month-label">${monthLabel}</span>
+      <button class="ghost" onclick="calendarNav(1)">Next &rsaquo;</button>
+      <button class="ghost" onclick="calendarToday()">Today</button>
+    </div>
+    <div class="cal-grid">
+      ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>`<div class="cal-dow">${d}</div>`).join('')}
+      ${cells.join('')}
+    </div>`;
+}
+function calendarNav(delta) {
+  calendarViewMonth += delta;
+  if (calendarViewMonth < 0) { calendarViewMonth = 11; calendarViewYear--; }
+  if (calendarViewMonth > 11) { calendarViewMonth = 0; calendarViewYear++; }
+  refresh();
+}
+function calendarToday() {
+  const t = new Date();
+  calendarViewYear = t.getFullYear(); calendarViewMonth = t.getMonth();
+  refresh();
 }
 
 function surpriseTable(rows, deleteFn) {
@@ -974,6 +1050,19 @@ async function refresh() {
       ${clearedDownloadsTable(d.cleared_stuck_downloads_shows)}
     `;
   }
+
+  if (calendarViewYear === null) {
+    const t = new Date();
+    calendarViewYear = t.getFullYear(); calendarViewMonth = t.getMonth();
+  }
+  document.getElementById('calendar-section').innerHTML = `
+    <div class="section-head"><span class="section-title">Calendar</span>
+      <span class="section-note">synced ${d.calendar_synced_at ? fmtDate(d.calendar_synced_at) : 'never'}</span></div>
+    <div class="mode-line" style="margin-bottom:12px">Upcoming movie releases and episode air dates across your
+      whole library — not just what yArr itself suggested.</div>
+    <button onclick="runAction(this,'api/refresh-calendar')">Refresh Calendar</button>
+    <div style="margin-top:14px">${renderCalendarGrid(d.calendar_entries || [])}</div>
+  `;
 
   // Library tab — only the data sub-containers get their innerHTML
   // replaced here, never the search/filter <input> elements
@@ -1299,6 +1388,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")
             elif path.endswith("/api/refresh-library"):
                 ha_fire_event("yarr_refresh_library")
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/refresh-calendar"):
+                ha_fire_event("yarr_refresh_calendar")
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")
             elif path.endswith("/api/library-delete-movie"):
                 movie_id = self._read_json_body().get("id")
