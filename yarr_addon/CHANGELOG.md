@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.26.2
+
+- Can move SABnzbd's completed-download folder (`yarr_sabnzbd_set_complete_dir`
+  event) — refuses any folder overlapping a Radarr/Sonarr library root.
+  Fixes setups where SABnzbd unpacks straight into the library folder,
+  which is what made half-finished `_UNPACK_` folders show up in Jellyfin.
+
 ## 0.26.1
 
 - Read-only folder-layout check (`yarr_check_paths` event): SABnzbd's

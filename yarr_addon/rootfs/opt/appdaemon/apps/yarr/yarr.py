@@ -19,6 +19,7 @@ from core import queue as core_queue
 from core import calendar as core_calendar
 from core import arr_profiles as core_arr_profiles
 from core import dolby_vision as core_dv
+from core import paths as core_paths
 
 from clients.tmdb import TMDBClient, TMDBError
 from clients.radarr import RadarrClient, RadarrError
@@ -136,7 +137,8 @@ class Yarr(hass.Hass):
                 ("yarr_dv_replace", self.on_dv_replace),
                 ("yarr_dv_replace_all", self.on_dv_replace_all),
                 ("yarr_dv_cancel_queued", self.on_dv_cancel_queued),
-                ("yarr_check_paths", self.on_check_paths)):
+                ("yarr_check_paths", self.on_check_paths),
+                ("yarr_sabnzbd_set_complete_dir", self.on_sabnzbd_set_complete_dir)):
             self.listen_event(handler, event)
         if self.cfg.sabnzbd_enabled:
             self.listen_event(self.on_sabnzbd_pause, "yarr_sabnzbd_pause")
@@ -2429,6 +2431,34 @@ class Yarr(hass.Hass):
         self._log_event("Checked download/library folder layout" + (f" ({len(errors)} error(s))" if errors else "") + ".",
                          level="warn" if errors else "info")
         self.publish_status({})
+
+    def on_sabnzbd_set_complete_dir(self, event_name, data, kwargs):
+        """Moves SABnzbd's completed-download folder, refusing anything
+        that overlaps a Radarr/Sonarr library root (checked against
+        their live root folders, not a cached list)."""
+        if not self.sabnzbd:
+            return
+        try:
+            roots = [r["path"] for r in self.radarr.get_root_folders()]
+            if self.sonarr:
+                roots += [r["path"] for r in self.sonarr.get_root_folders()]
+            path = core_paths.validate_complete_dir((data or {}).get("path"), roots)
+        except (RadarrError, SonarrError, ValueError) as exc:
+            self._log_event(f"Refused to move SABnzbd's completed folder: {exc}", level="error")
+            self.publish_status({})
+            return
+        if self._dry_run():
+            self._log_event(f"Dry run — would have moved SABnzbd's completed folder to {path!r}.")
+        else:
+            try:
+                self.sabnzbd.set_complete_dir(path)
+            except SABnzbdError as exc:
+                self._log_event(f"Could not move SABnzbd's completed folder: {exc}", level="error")
+                self.publish_status({})
+                return
+            self._log_event(f"SABnzbd now finishes downloads in {path!r}, outside the library — "
+                             "Radarr/Sonarr move them in on import.")
+        self.on_check_paths(None, None, None)
 
     # ------------------------------------------------------------------
     # SABNZBD: monitoring + global pause/resume

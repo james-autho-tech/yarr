@@ -1,7 +1,8 @@
 """Thin network wrapper around SABnzbd's API — adapter-side, not unit
 tested (see clients/tmdb.py's docstring for why). Monitoring plus the
-SABnzbd tab's global Pause/Resume buttons — yArr never queues, deletes
-or reorders individual jobs."""
+SABnzbd tab's global Pause/Resume buttons, plus moving the completed-
+download folder out of the library — yArr never queues, deletes or
+reorders individual jobs."""
 
 import json
 import urllib.error
@@ -84,6 +85,20 @@ class SABnzbdClient:
             "categories": [{"name": c.get("name"), "dir": c.get("dir")}
                            for c in config.get("categories", []) if c.get("name")],
         }
+
+    def set_complete_dir(self, path: str, timeout=10) -> None:
+        """Sets SABnzbd's completed-download folder (Config → Folders).
+        Category folders are relative to it, so they move along."""
+        params = {"mode": "set_config", "section": "misc", "keyword": "complete_dir",
+                  "value": path, "output": "json", "apikey": self.api_key}
+        url = f"{self.url}/api?{urllib.parse.urlencode(params)}"
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as resp:
+                body = json.loads(resp.read())
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError) as exc:
+            raise SABnzbdError(f"set_config complete_dir failed: {exc}") from exc
+        if isinstance(body, dict) and body.get("status") is False:
+            raise SABnzbdError(f"set_config complete_dir failed: {body.get('error') or body}")
 
     def pause(self) -> None:
         """Pauses the whole queue — same as SABnzbd's own global pause
