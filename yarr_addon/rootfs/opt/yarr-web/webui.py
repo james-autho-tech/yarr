@@ -258,6 +258,7 @@ def build_status():
         "allow_library_delete": attrs.get("allow_library_delete", False),
 
         "arr_admin": (states.get("sensor.yarr_arr_admin") or {}).get("attributes", {}),
+        "tool_links": attrs.get("tool_links", []),
 
         "log": attrs.get("log", []),
     }
@@ -281,7 +282,12 @@ body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--sans);
 a{color:var(--accent)}
 code{font-family:var(--mono);background:var(--panel);padding:1px 6px;border-radius:3px;font-size:.85em}
 
-header{padding:28px 24px 22px;border-bottom:2px solid var(--ink)}
+header{padding:28px 24px 22px;border-bottom:2px solid var(--ink);display:flex;
+       align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.tool-links{display:flex;gap:8px;flex-wrap:wrap}
+.tool-links a{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;
+       color:var(--ink);text-decoration:none;border:2px solid var(--edge);border-radius:6px;padding:7px 12px}
+.tool-links a:hover{border-color:var(--accent);color:var(--accent)}
 .wordmark{font-size:34px;font-weight:900;letter-spacing:-.02em;line-height:1}
 .wordmark .hi{color:var(--accent)}
 .tagline{color:var(--sub);font-size:13px;margin-top:6px;font-weight:500}
@@ -480,8 +486,11 @@ button.compact{padding:8px 14px;font-size:12px}
 .toast.error{border-color:var(--err);color:var(--err)}
 </style></head><body>
 <header>
-  <div class="wordmark">y<span class="hi">Arr</span></div>
-  <div class="tagline">Auto-stocks and auto-thins your Radarr/Sonarr library</div>
+  <div>
+    <div class="wordmark">y<span class="hi">Arr</span></div>
+    <div class="tagline">Auto-stocks and auto-thins your Radarr/Sonarr library</div>
+  </div>
+  <nav class="tool-links" id="tool-links"></nav>
 </header>
 <nav class="tabs">
   <button class="tab-btn" data-tab="library" onclick="selectTab('library')">Library</button>
@@ -1303,6 +1312,8 @@ async function refresh() {
   lastLibraryShows = d.library_shows || [];
   allowLibraryDelete = !!d.allow_library_delete;
   arrAdmin = d.arr_admin || {};
+  document.getElementById('tool-links').innerHTML = (d.tool_links || []).map(l =>
+    `<a href="${escAttr(l.url)}" target="_blank" rel="noopener">${esc(l.name)} &#8599;</a>`).join('');
 
   document.getElementById('search-type-toggle').style.display = d.tv_enabled ? '' : 'none';
   document.getElementById('search-meta').textContent = d.last_search_query

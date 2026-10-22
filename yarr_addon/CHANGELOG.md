@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.25.1
+
+- Header links to Radarr, Sonarr, SABnzbd and Jellyfin's own web UIs
+  (opened in a new tab), using the URLs from the add-on's configuration
+  — credentials embedded in a URL are stripped, never published.
+
 ## 0.25.0
 
 - **Purple picture fix**: Profiles tab can now block Dolby Vision

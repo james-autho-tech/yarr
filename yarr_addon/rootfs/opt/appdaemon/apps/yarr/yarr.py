@@ -1,6 +1,7 @@
 import os
 import shutil
 import time
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 
 import appdaemon.plugins.hass.hassapi as hass
@@ -2378,8 +2379,26 @@ class Yarr(hass.Hass):
         return {"title": pending.title, "year": pending.year, "rating": pending.rating,
                 "genres": pending.genres}
 
+    def _tool_links(self):
+        """Header links to each tool's own web UI — the same URLs yArr
+        talks to, minus any user:password@ in them (never published to
+        an HA attribute). Only as reachable from the browser as they are
+        from yArr: a container-internal hostname won't open."""
+        links = []
+        for name, url, on in (("Radarr", self.cfg.radarr_url, True),
+                              ("Sonarr", self.cfg.sonarr_url, self.cfg.tv_enabled),
+                              ("SABnzbd", self.cfg.sabnzbd_url, self.cfg.sabnzbd_enabled),
+                              ("Jellyfin", self.cfg.jellyfin_url, True)):
+            parts = urllib.parse.urlsplit(url or "")
+            if on and parts.scheme in ("http", "https") and parts.hostname:
+                netloc = parts.hostname + (f":{parts.port}" if parts.port else "")
+                links.append({"name": name, "url": urllib.parse.urlunsplit(
+                    (parts.scheme, netloc, parts.path, "", ""))})
+        return links
+
     def publish_status(self, kwargs):
         attrs = {
+            "tool_links": self._tool_links(),
             "suggested_count": len(self.state_data.suggested),
             "surprise_count": len(self.state_data.surprises),
             "next_surprise_at": self.state_data.next_surprise_at,
