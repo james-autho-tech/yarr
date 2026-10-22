@@ -70,6 +70,8 @@ class RadarrClient:
             "genres": m.get("genres", []), "overview": m.get("overview", ""),
             "size": (m.get("movieFile") or {}).get("size", 0),
             "added": m.get("added"),
+            "quality_profile_id": m.get("qualityProfileId"),
+            "has_file": bool(m.get("hasFile", False)),
         } for m in (movies or [])]
 
     def get_excluded_tmdb_ids(self) -> set:
@@ -131,6 +133,39 @@ class RadarrClient:
                         "has_file": bool(m.get("hasFile", False)),
                     })
         return entries
+
+    # -- Profile / library management (the Profiles tab and the Library
+    # tab's detail panel). Profiles are always edited read-modify-write
+    # on the full object Radarr returns (see core/arr_profiles.py), so
+    # fields yArr doesn't model — custom format scores, language — ride
+    # along untouched instead of being reset by a partial PUT.
+
+    def get_quality_profiles(self) -> list:
+        _, body = self._request("GET", "/qualityprofile")
+        return body or []
+
+    def get_quality_profile(self, profile_id: int) -> dict:
+        _, body = self._request("GET", f"/qualityprofile/{profile_id}")
+        return body
+
+    def create_quality_profile(self, profile: dict) -> dict:
+        _, body = self._request("POST", "/qualityprofile", profile)
+        return body
+
+    def update_quality_profile(self, profile: dict) -> dict:
+        _, body = self._request("PUT", f"/qualityprofile/{profile['id']}", profile)
+        return body
+
+    def delete_quality_profile(self, profile_id: int) -> None:
+        """Radarr itself refuses (HTTP 400) to delete a profile any
+        movie still uses — that error is surfaced as-is rather than
+        pre-checked here."""
+        self._request("DELETE", f"/qualityprofile/{profile_id}")
+
+    def get_root_folders(self) -> list:
+        _, body = self._request("GET", "/rootfolder")
+        return [{"path": r.get("path"), "free_space": r.get("freeSpace")}
+                for r in (body or []) if r.get("path")]
 
     def resolve_quality_profile_id(self, name: str) -> int:
         _, body = self._request("GET", "/qualityprofile")
@@ -194,6 +229,18 @@ class RadarrClient:
             if movie_file and posixpath.basename(movie_file.get("path", "")) == target:
                 return m["id"]
         return None
+
+    def set_movies_quality_profile(self, movie_ids: list, profile_id: int) -> None:
+        self._request("PUT", "/movie/editor", {"movieIds": movie_ids, "qualityProfileId": profile_id})
+
+    def set_movies_monitored(self, movie_ids: list, monitored: bool) -> None:
+        self._request("PUT", "/movie/editor", {"movieIds": movie_ids, "monitored": monitored})
+
+    def search_movies(self, movie_ids: list) -> None:
+        self._request("POST", "/command", {"name": "MoviesSearch", "movieIds": movie_ids})
+
+    def search_missing(self) -> None:
+        self._request("POST", "/command", {"name": "MissingMoviesSearch"})
 
     def rename_movie_files(self, movie_id: int) -> None:
         self._request("POST", "/command", {"name": "RenameMovie", "movieIds": [movie_id]})

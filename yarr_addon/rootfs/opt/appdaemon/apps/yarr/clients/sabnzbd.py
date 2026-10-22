@@ -1,7 +1,7 @@
 """Thin network wrapper around SABnzbd's API — adapter-side, not unit
-tested (see clients/tmdb.py's docstring for why). Read-only monitoring
-only; yArr never queues/pauses/cancels anything in SABnzbd, it just
-surfaces queue status as an HA sensor."""
+tested (see clients/tmdb.py's docstring for why). Monitoring plus the
+SABnzbd tab's global Pause/Resume buttons — yArr never queues, deletes
+or reorders individual jobs."""
 
 import json
 import urllib.error
@@ -55,3 +55,24 @@ class SABnzbdClient:
             "paused": bool(queue.get("paused", False)),
             "items": items,
         }
+
+    def _command(self, mode, timeout=10) -> None:
+        params = {"mode": mode, "output": "json", "apikey": self.api_key}
+        url = f"{self.url}/api?{urllib.parse.urlencode(params)}"
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as resp:
+                body = json.loads(resp.read())
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError) as exc:
+            raise SABnzbdError(f"{mode} failed: {exc}") from exc
+        if not body.get("status", False):
+            raise SABnzbdError(f"{mode} failed: {body.get('error') or body}")
+
+    def pause(self) -> None:
+        """Pauses the whole queue — same as SABnzbd's own global pause
+        button. A SABnzbd schedule entry can still resume it later."""
+        self._command("pause")
+
+    def resume(self) -> None:
+        """Resumes the whole queue. A SABnzbd schedule entry can still
+        pause it again at its next scheduled time."""
+        self._command("resume")

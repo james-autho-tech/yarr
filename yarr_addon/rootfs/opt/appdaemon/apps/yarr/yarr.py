@@ -16,6 +16,7 @@ from core import junk as core_junk
 from core import library as core_library
 from core import queue as core_queue
 from core import calendar as core_calendar
+from core import arr_profiles as core_arr_profiles
 
 from clients.tmdb import TMDBClient, TMDBError
 from clients.radarr import RadarrClient, RadarrError
@@ -106,6 +107,28 @@ class Yarr(hass.Hass):
         if self.cfg.tv_enabled:
             self.listen_event(self.on_request_add_show, "yarr_request_add_show")
             self.listen_event(self.on_library_delete_show, "yarr_library_delete_show")
+
+        # Profiles tab + Library detail panel: Radarr/Sonarr management.
+        # Every handler re-validates the ids it's given against what
+        # yArr itself last fetched (profiles, root folders, library
+        # rows) before writing anything — same rule as request-add.
+        self._arr_admin = {"radarr": {"profiles": [], "root_folders": []},
+                           "sonarr": {"profiles": [], "root_folders": []}}
+        for event, handler in (
+                ("yarr_refresh_arr_admin", self.on_refresh_arr_admin),
+                ("yarr_arr_profile_save", self.on_arr_profile_save),
+                ("yarr_arr_profile_clone", self.on_arr_profile_clone),
+                ("yarr_arr_profile_delete", self.on_arr_profile_delete),
+                ("yarr_arr_set_default", self.on_arr_set_default),
+                ("yarr_library_set_profile", self.on_library_set_profile),
+                ("yarr_library_set_monitored", self.on_library_set_monitored),
+                ("yarr_library_set_season_monitored", self.on_library_set_season_monitored),
+                ("yarr_library_search", self.on_library_search),
+                ("yarr_search_missing", self.on_search_missing)):
+            self.listen_event(handler, event)
+        if self.cfg.sabnzbd_enabled:
+            self.listen_event(self.on_sabnzbd_pause, "yarr_sabnzbd_pause")
+            self.listen_event(self.on_sabnzbd_resume, "yarr_sabnzbd_resume")
 
         self.run_every(self.tick_discovery, "now", self.cfg.discovery_interval_hours * 3600)
         self.run_every(self.tick_surprise_check, "now", 3600)
@@ -511,9 +534,9 @@ class Yarr(hass.Hass):
             radarr_movie_id = None
             if not self._dry_run():
                 try:
-                    qp_id = self.radarr.resolve_quality_profile_id(self.cfg.radarr_quality_profile_name)
+                    qp_id = self.radarr.resolve_quality_profile_id(self._arr_default('radarr', 'profile'))
                     radarr_movie_id = self.radarr.add_movie(
-                        c, root_folder=self.cfg.radarr_root_folder,
+                        c, root_folder=self._arr_default('radarr', 'root_folder'),
                         quality_profile_id=qp_id,
                         minimum_availability=self.cfg.radarr_minimum_availability)
                 except RadarrError as exc:
@@ -601,10 +624,10 @@ class Yarr(hass.Hass):
         imdb_id = pick.imdb_id
         if not self._dry_run():
             try:
-                qp_id = self.radarr.resolve_quality_profile_id(self.cfg.radarr_quality_profile_name)
+                qp_id = self.radarr.resolve_quality_profile_id(self._arr_default('radarr', 'profile'))
                 tag_id = self.radarr.ensure_tag(self.cfg.surprise_tag)
                 radarr_movie_id = self.radarr.add_movie(
-                    pick, root_folder=self.cfg.radarr_root_folder,
+                    pick, root_folder=self._arr_default('radarr', 'root_folder'),
                     quality_profile_id=qp_id, tag_ids=[tag_id],
                     minimum_availability=self.cfg.radarr_minimum_availability)
             except RadarrError as exc:
@@ -711,9 +734,9 @@ class Yarr(hass.Hass):
             sonarr_series_id = None
             if not self._dry_run():
                 try:
-                    qp_id = self.sonarr.resolve_quality_profile_id(self.cfg.sonarr_quality_profile_name)
+                    qp_id = self.sonarr.resolve_quality_profile_id(self._arr_default('sonarr', 'profile'))
                     sonarr_series_id = self.sonarr.add_series(
-                        c, root_folder=self.cfg.sonarr_root_folder,
+                        c, root_folder=self._arr_default('sonarr', 'root_folder'),
                         quality_profile_id=qp_id,
                         language_profile_id=self.cfg.sonarr_language_profile_id)
                 except SonarrError as exc:
@@ -798,10 +821,10 @@ class Yarr(hass.Hass):
         sonarr_series_id = None
         if not self._dry_run():
             try:
-                qp_id = self.sonarr.resolve_quality_profile_id(self.cfg.sonarr_quality_profile_name)
+                qp_id = self.sonarr.resolve_quality_profile_id(self._arr_default('sonarr', 'profile'))
                 tag_id = self.sonarr.ensure_tag(self.cfg.tv_surprise_tag)
                 sonarr_series_id = self.sonarr.add_series(
-                    pick, root_folder=self.cfg.sonarr_root_folder,
+                    pick, root_folder=self._arr_default('sonarr', 'root_folder'),
                     quality_profile_id=qp_id, tag_ids=[tag_id],
                     language_profile_id=self.cfg.sonarr_language_profile_id)
             except SonarrError as exc:
@@ -1596,6 +1619,7 @@ class Yarr(hass.Hass):
             return
         self.state_data.library_synced_at = datetime.now(timezone.utc).isoformat()
         self._save_state()
+        self._refresh_arr_admin()
 
     def on_refresh_library_pressed(self, event_name, data, kwargs):
         self.tick_refresh_library({})
@@ -1737,12 +1761,12 @@ class Yarr(hass.Hass):
         radarr_movie_id = None
         if not self._dry_run():
             try:
-                qp_id = self.radarr.resolve_quality_profile_id(self.cfg.radarr_quality_profile_name)
+                qp_id = self.radarr.resolve_quality_profile_id(self._arr_default('radarr', 'profile'))
                 candidate = core_discovery.Candidate(
                     tmdb_id=row["tmdb_id"], imdb_id=None, title=row["title"],
                     year=row["year"], genres=[], rating=row.get("rating", 0.0))
                 radarr_movie_id = self.radarr.add_movie(
-                    candidate, root_folder=self.cfg.radarr_root_folder, quality_profile_id=qp_id,
+                    candidate, root_folder=self._arr_default('radarr', 'root_folder'), quality_profile_id=qp_id,
                     minimum_availability=self.cfg.radarr_minimum_availability)
             except RadarrError as exc:
                 self._log_event(f"Could not add requested {row['title']!r}: {exc}", level="error")
@@ -1779,12 +1803,12 @@ class Yarr(hass.Hass):
         sonarr_series_id = None
         if not self._dry_run():
             try:
-                qp_id = self.sonarr.resolve_quality_profile_id(self.cfg.sonarr_quality_profile_name)
+                qp_id = self.sonarr.resolve_quality_profile_id(self._arr_default('sonarr', 'profile'))
                 candidate = core_discovery.TVCandidate(
                     tmdb_id=row["tmdb_id"], tvdb_id=row["tvdb_id"], imdb_id=None,
                     title=row["title"], year=row["year"], genres=[], rating=row.get("rating", 0.0))
                 sonarr_series_id = self.sonarr.add_series(
-                    candidate, root_folder=self.cfg.sonarr_root_folder, quality_profile_id=qp_id,
+                    candidate, root_folder=self._arr_default('sonarr', 'root_folder'), quality_profile_id=qp_id,
                     language_profile_id=self.cfg.sonarr_language_profile_id)
             except SonarrError as exc:
                 self._log_event(f"Could not add requested show {row['title']!r}: {exc}", level="error")
@@ -1874,8 +1898,273 @@ class Yarr(hass.Hass):
         self.publish_status({})
 
     # ------------------------------------------------------------------
-    # SABNZBD MONITORING (read-only)
+    # RADARR/SONARR MANAGEMENT: quality profiles, add defaults, per-title
+    # profile/monitoring/search (Profiles tab + Library detail panel)
     # ------------------------------------------------------------------
+
+    def _arr(self, app):
+        """-> (client, its error class, display name), or None for an
+        unknown app name or Sonarr while TV is disabled."""
+        if app == "radarr":
+            return self.radarr, RadarrError, "Radarr"
+        if app == "sonarr" and self.cfg.tv_enabled:
+            return self.sonarr, SonarrError, "Sonarr"
+        return None
+
+    def _arr_default(self, app, kind):
+        """The quality profile name / root folder new adds use: whatever
+        was last picked on the Profiles tab (persisted in settings, so
+        it survives restarts), else apps.yaml's value. Stored by name,
+        not id, to keep apps.yaml's existing semantics."""
+        cfg_default = getattr(self.cfg, f"{app}_quality_profile_name" if kind == "profile"
+                              else f"{app}_root_folder")
+        return self.state_data.settings.get(f"{app}_default_{kind}") or cfg_default
+
+    def _refresh_arr_admin(self):
+        if self.missing_secrets:
+            return
+        for app in ("radarr", "sonarr"):
+            arr = self._arr(app)
+            if arr is None:
+                continue
+            client, error, name = arr
+            try:
+                self._arr_admin[app] = {
+                    "profiles": [core_arr_profiles.summarize_profile(p)
+                                 for p in client.get_quality_profiles()],
+                    "root_folders": client.get_root_folders(),
+                }
+            except error as exc:
+                self._log_event(f"{name} profile/root folder refresh failed: {exc}", level="error")
+
+    def on_refresh_arr_admin(self, event_name, data, kwargs):
+        self._refresh_arr_admin()
+        self.publish_status({})
+
+    def _known_profile(self, app, profile_id):
+        return next((p for p in self._arr_admin[app]["profiles"] if p["id"] == profile_id), None)
+
+    def _arr_write(self, description, write, *, error, refresh_library=False):
+        """Shared tail of every management action: honours dry run the
+        same way request-add does, logs the outcome either way, then
+        refreshes whatever the write changed and republishes so the web
+        UI's poll picks the result up immediately."""
+        if self._dry_run():
+            self._log_event(f"Dry run — would have {description}.")
+        else:
+            try:
+                write()
+            except error as exc:
+                self._log_event(f"Could not {description}: {exc}", level="error")
+                self.publish_status({})
+                return False
+            self._log_event(f"{description[0].upper()}{description[1:]}.")
+        if refresh_library:
+            self.tick_refresh_library({})
+        else:
+            self._refresh_arr_admin()
+        self.publish_status({})
+        return True
+
+    def on_arr_profile_save(self, event_name, data, kwargs):
+        data = data or {}
+        app, profile_id = data.get("app"), data.get("id")
+        arr = self._arr(app)
+        if arr is None or self._known_profile(app, profile_id) is None:
+            self._log_event(f"Refused profile edit — unknown {app!r} profile {profile_id!r}.", level="error")
+            self.publish_status({})
+            return
+        client, error, name = arr
+        try:
+            current = client.get_quality_profile(profile_id)
+            edited = core_arr_profiles.apply_profile_edit(
+                current, name=data.get("name"), upgrade_allowed=bool(data.get("upgrade_allowed")),
+                cutoff=data.get("cutoff"), allowed_keys=data.get("allowed") or [])
+        except (error, core_arr_profiles.ProfileEditError) as exc:
+            self._log_event(f"Could not save {name} profile: {exc}", level="error")
+            self.publish_status({})
+            return
+        saved = self._arr_write(f"saved {name} quality profile {edited['name']!r}",
+                                lambda: client.update_quality_profile(edited), error=error)
+        # Defaults are stored by name — follow a rename so new adds
+        # don't start failing with "no profile named ...".
+        if (saved and current["name"] != edited["name"] and not self._dry_run()
+                and self._arr_default(app, "profile") == current["name"]):
+            self.state_data = core_state.set_setting(
+                self.state_data, f"{app}_default_profile", edited["name"])
+            self._save_state()
+            self.publish_status({})
+
+    def on_arr_profile_clone(self, event_name, data, kwargs):
+        data = data or {}
+        app, source_id = data.get("app"), data.get("source_id")
+        arr = self._arr(app)
+        if arr is None or self._known_profile(app, source_id) is None:
+            self._log_event(f"Refused profile copy — unknown {app!r} profile {source_id!r}.", level="error")
+            self.publish_status({})
+            return
+        client, error, name = arr
+        try:
+            cloned = core_arr_profiles.clone_profile(client.get_quality_profile(source_id), data.get("name"))
+        except (error, core_arr_profiles.ProfileEditError) as exc:
+            self._log_event(f"Could not copy {name} profile: {exc}", level="error")
+            self.publish_status({})
+            return
+        self._arr_write(f"created {name} quality profile {cloned['name']!r}",
+                        lambda: client.create_quality_profile(cloned), error=error)
+
+    def on_arr_profile_delete(self, event_name, data, kwargs):
+        data = data or {}
+        app, profile_id = data.get("app"), data.get("id")
+        arr = self._arr(app)
+        profile = self._known_profile(app, profile_id) if arr else None
+        if profile is None:
+            self._log_event(f"Refused profile delete — unknown {app!r} profile {profile_id!r}.", level="error")
+            self.publish_status({})
+            return
+        client, error, name = arr
+        if profile["name"] == self._arr_default(app, "profile"):
+            self._log_event(f"Won't delete {profile['name']!r} — it's yArr's default {name} profile for "
+                             "new adds. Pick a different default first.", level="error")
+            self.publish_status({})
+            return
+        self._arr_write(f"deleted {name} quality profile {profile['name']!r}",
+                        lambda: client.delete_quality_profile(profile_id), error=error)
+
+    def on_arr_set_default(self, event_name, data, kwargs):
+        data = data or {}
+        app = data.get("app")
+        arr = self._arr(app)
+        if arr is None:
+            return
+        _, _, name = arr
+        admin = self._arr_admin[app]
+        profile_name, root_folder = data.get("profile"), data.get("root_folder")
+        if profile_name is not None:
+            if profile_name not in {p["name"] for p in admin["profiles"]}:
+                self._log_event(f"Refused — {name} has no quality profile named {profile_name!r}.",
+                                 level="error")
+            else:
+                self.state_data = core_state.set_setting(self.state_data, f"{app}_default_profile",
+                                                         profile_name)
+                self._log_event(f"New {name} adds will use quality profile {profile_name!r}.")
+        if root_folder is not None:
+            if root_folder not in {r["path"] for r in admin["root_folders"]}:
+                self._log_event(f"Refused — {root_folder!r} isn't a {name} root folder.", level="error")
+            else:
+                self.state_data = core_state.set_setting(self.state_data, f"{app}_default_root_folder",
+                                                         root_folder)
+                self._log_event(f"New {name} adds will go to {root_folder!r}.")
+        self._save_state()
+        self.publish_status({})
+
+    def _library_row(self, app, item_id):
+        rows = self.state_data.library_movies if app == "radarr" else self.state_data.library_shows
+        return next((r for r in rows if r.get("id") == item_id), None)
+
+    def _validated_library_target(self, data, action):
+        """-> (app, row, client, error, name) for a Library-tab action,
+        or None (already logged) when the app or id isn't one yArr
+        itself last fetched."""
+        app, item_id = data.get("app"), data.get("id")
+        arr = self._arr(app)
+        row = self._library_row(app, item_id) if arr else None
+        if row is None:
+            self._log_event(f"Refused {action} — {item_id!r} isn't in your {app} library "
+                             "(press Refresh Library?).", level="error")
+            self.publish_status({})
+            return None
+        return (app, row) + arr
+
+    def on_library_set_profile(self, event_name, data, kwargs):
+        data = data or {}
+        target = self._validated_library_target(data, "profile change")
+        if target is None:
+            return
+        app, row, client, error, _ = target
+        profile = self._known_profile(app, data.get("profile_id"))
+        if profile is None:
+            self._log_event(f"Refused profile change — unknown profile {data.get('profile_id')!r}.",
+                             level="error")
+            self.publish_status({})
+            return
+        write = (lambda: client.set_movies_quality_profile([row["id"]], profile["id"])) if app == "radarr" \
+            else (lambda: client.set_series_quality_profile([row["id"]], profile["id"]))
+        self._arr_write(f"switched {row['title']!r} to quality profile {profile['name']!r}",
+                        write, error=error, refresh_library=True)
+
+    def on_library_set_monitored(self, event_name, data, kwargs):
+        data = data or {}
+        target = self._validated_library_target(data, "monitor change")
+        if target is None:
+            return
+        app, row, client, error, _ = target
+        monitored = bool(data.get("monitored"))
+        write = (lambda: client.set_movies_monitored([row["id"]], monitored)) if app == "radarr" \
+            else (lambda: client.set_series_monitored([row["id"]], monitored))
+        self._arr_write(f"{'monitored' if monitored else 'unmonitored'} {row['title']!r}",
+                        write, error=error, refresh_library=True)
+
+    def on_library_set_season_monitored(self, event_name, data, kwargs):
+        data = {**(data or {}), "app": "sonarr"}
+        target = self._validated_library_target(data, "season monitor change")
+        if target is None:
+            return
+        _, row, client, error, _ = target
+        season = data.get("season_number")
+        if season not in {se["season_number"] for se in row.get("seasons") or []}:
+            self._log_event(f"Refused — {row['title']!r} has no season {season!r}.", level="error")
+            self.publish_status({})
+            return
+        monitored = bool(data.get("monitored"))
+        self._arr_write(f"{'monitored' if monitored else 'unmonitored'} {row['title']!r} season {season}",
+                        lambda: client.set_season_monitored(row["id"], season, monitored),
+                        error=error, refresh_library=True)
+
+    def on_library_search(self, event_name, data, kwargs):
+        data = data or {}
+        target = self._validated_library_target(data, "search")
+        if target is None:
+            return
+        app, row, client, error, name = target
+        season = data.get("season_number")
+        if app == "radarr":
+            write, what = (lambda: client.search_movies([row["id"]])), repr(row["title"])
+        elif season is not None:
+            write, what = (lambda: client.search_season(row["id"], season)), \
+                f"{row['title']!r} season {season}"
+        else:
+            write, what = (lambda: client.search_series(row["id"])), repr(row["title"])
+        self._arr_write(f"started a {name} search for {what}", write, error=error)
+
+    def on_search_missing(self, event_name, data, kwargs):
+        arr = self._arr((data or {}).get("app"))
+        if arr is None:
+            return
+        client, error, name = arr
+        self._arr_write(f"started a {name} search for everything missing", client.search_missing,
+                        error=error)
+
+    # ------------------------------------------------------------------
+    # SABNZBD: monitoring + global pause/resume
+    # ------------------------------------------------------------------
+
+    def _sabnzbd_control(self, action, call):
+        try:
+            call()
+        except SABnzbdError as exc:
+            self._log_event(f"Could not {action} SABnzbd: {exc}", level="error")
+        else:
+            self._log_event(f"SABnzbd {'paused' if action == 'pause' else 'resumed'} from yArr.")
+        self.tick_sabnzbd_status({})
+        self.publish_status({})
+
+    def on_sabnzbd_pause(self, event_name, data, kwargs):
+        self._sabnzbd_control("pause", self.sabnzbd.pause)
+
+    def on_sabnzbd_resume(self, event_name, data, kwargs):
+        self._sabnzbd_control("resume", self.sabnzbd.resume)
+
 
     def tick_sabnzbd_status(self, kwargs):
         try:
@@ -2007,4 +2296,15 @@ class Yarr(hass.Hass):
         self.set_state("sensor.yarr_status",
                         state="Not Configured" if self.missing_secrets else "OK",
                         attributes=attrs)
+        # Separate sensor so profile data (dozens of qualities per
+        # profile) doesn't bloat sensor.yarr_status's already-large
+        # attribute payload.
+        admin_attrs = {}
+        for app in ("radarr", "sonarr"):
+            if self._arr(app) is None:
+                continue
+            admin_attrs[app] = {**self._arr_admin[app],
+                                "default_profile": self._arr_default(app, "profile"),
+                                "default_root_folder": self._arr_default(app, "root_folder")}
+        self.set_state("sensor.yarr_arr_admin", state="OK", attributes=admin_attrs)
         self.set_state("sensor.yarr_heartbeat", state=datetime.now(timezone.utc).isoformat())

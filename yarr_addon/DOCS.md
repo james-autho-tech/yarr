@@ -226,8 +226,9 @@ poster art is available.
 (there's no live-as-you-type search — see "Why isn't search instant"
 below). Each result shows either a **Add** button or an **In library**
 badge if you already have it. Add uses the exact same path as genre
-auto-add and surprise picks: your configured `radarr_root_folder`/
-`radarr_quality_profile_name` (or the Sonarr equivalents), immediately
+auto-add and surprise picks: the default profile and root folder picked
+on the Profiles tab (falling back to `radarr_root_folder`/
+`radarr_quality_profile_name`, or the Sonarr equivalents), immediately
 searched for on add — no separate "request queue" or approval step,
 since this is a single-user tool, not a multi-user request system.
 
@@ -272,6 +273,37 @@ this only surfaces candidates, and deleting one uses the exact same
 Delete action/`allow_library_delete` gate as the rest of the Library
 tab.
 
+## Profiles: quality profiles and defaults for new adds
+
+The **Profiles** tab shows every quality profile in Radarr (and Sonarr,
+with TV enabled), read live from them:
+
+- **Edit**: rename, tick which qualities are allowed, choose the
+  "Upgrade until" cutoff and whether upgrades are allowed, then
+  **Save**. Edits are applied to the full profile as Radarr/Sonarr
+  returned it, so custom format scores and anything else not shown on
+  the tab are kept exactly as they were.
+- **Copy** makes a new profile from an existing one (same qualities,
+  cutoff and custom format scores); **Delete** removes one — Radarr/
+  Sonarr refuse if anything still uses it, and yArr refuses to delete
+  whichever profile is its own default for new adds.
+- **Defaults**: the two dropdowns above each app's profiles set the
+  quality profile and root folder everything yArr adds uses — genre
+  auto-add, surprises and Library requests. Persisted across restarts;
+  until you pick one, apps.yaml's `*_quality_profile_name`/
+  `*_root_folder` apply. Renaming the default profile here keeps it the
+  default.
+- **Search all missing** asks Radarr/Sonarr to search for every
+  monitored item without a file — can queue a lot at once.
+
+Per title, click any poster on the Library tab: the detail view now
+has a **Quality profile** dropdown, a **Monitored** toggle and **Search
+now**; shows also list each season with its own monitored toggle,
+downloaded/total episode count and a per-season **Search**.
+
+Every change honours **Dry run** (logged, never sent) and shows up in
+the Log tab either way.
+
 ## Blocked titles
 
 Denying a proposed surprise (movie or TV) blocks that exact title
@@ -292,8 +324,12 @@ until you explicitly unblock it.
 Set `sabnzbd_url`/`sabnzbd_api_key` in the Configuration tab. Once both
 are set, `sensor.yarr_sabnzbd_status` publishes queue status (speed,
 size left, ETA, up to 10 in-progress items) every 60 seconds, and the
-web UI gets a SABnzbd card. Read-only — yArr never pauses, cancels, or
-reorders anything in the queue.
+web UI gets a SABnzbd card with **Pause All** / **Resume All** — the
+same as SABnzbd's own global pause button. If SABnzbd has a scheduled
+pause/resume set (Config → Scheduling), that still fires at its next
+scheduled time, so a manual Resume during a scheduled-pause window only
+lasts until the schedule's next entry. yArr never cancels, deletes or
+reorders individual jobs.
 
 ## Media cleanup: duplicates + failed unpacks (optional)
 
@@ -497,9 +533,8 @@ cancel it in the download client, and blocklist the release so it's
 never grabbed again — the exact same single call as manually pressing
 **Remove** with **Blocklist** checked in the Activity/Queue UI. Radarr/
 Sonarr then searches for a replacement release automatically. **This
-never talks to SABnzbd directly** — SABnzbd monitoring elsewhere in
-yArr stays exactly as read-only as documented; this is entirely a
-Radarr/Sonarr-side action.
+never talks to SABnzbd directly** — this is entirely a Radarr/
+Sonarr-side action.
 
 Turn it off with the **Auto-clean stuck downloads** toggle in the
 Settings tab, and every cleared item is logged (Log tab) plus kept in a

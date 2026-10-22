@@ -58,6 +58,24 @@ NUMBER_SETTINGS = {
                               "Stuck download threshold (hours)", 1, 168, 1),
 }
 
+# Radarr/Sonarr management + SABnzbd controls: web path -> HA event,
+# body forwarded as-is. Deliberately just a relay — yarr.py re-validates
+# every app/id/profile/root folder against data it fetched itself
+# before writing anything, so this process never needs to.
+FORWARDED_EVENTS = {
+    "/api/refresh-arr-admin": "yarr_refresh_arr_admin",
+    "/api/arr-profile-save": "yarr_arr_profile_save",
+    "/api/arr-profile-clone": "yarr_arr_profile_clone",
+    "/api/arr-profile-delete": "yarr_arr_profile_delete",
+    "/api/arr-set-default": "yarr_arr_set_default",
+    "/api/library-set-profile": "yarr_library_set_profile",
+    "/api/library-set-monitored": "yarr_library_set_monitored",
+    "/api/library-set-season-monitored": "yarr_library_set_season_monitored",
+    "/api/library-search": "yarr_library_search",
+    "/api/search-missing": "yarr_search_missing",
+    "/api/sabnzbd-pause": "yarr_sabnzbd_pause",
+    "/api/sabnzbd-resume": "yarr_sabnzbd_resume",
+}
 
 def ha_get_all_states():
     req = urllib.request.Request(
@@ -234,6 +252,8 @@ def build_status():
         "last_search_results": attrs.get("last_search_results", []),
         "last_search_at": attrs.get("last_search_at"),
         "allow_library_delete": attrs.get("allow_library_delete", False),
+
+        "arr_admin": (states.get("sensor.yarr_arr_admin") or {}).get("attributes", {}),
 
         "log": attrs.get("log", []),
     }
@@ -434,6 +454,17 @@ button:disabled{opacity:.55;cursor:default;filter:none}
 button.ghost:disabled:hover{background:transparent;color:var(--ink)}
 button.small-delete:disabled:hover{color:var(--faint);border-color:var(--edge)}
 
+.profile-card{background:var(--panel);border:1px solid var(--edge);border-radius:8px;
+      padding:16px 18px;margin-bottom:14px}
+.profile-card .search-row{margin-bottom:10px}
+.profile-card table.list td{padding:6px}
+.check-label{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--sub);cursor:pointer}
+.manage-block{margin-top:18px;padding-top:14px;border-top:1px solid var(--edge);display:flex;
+      flex-direction:column;gap:12px}
+.manage-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.manage-row .settings-label{min-width:110px}
+select.text-input{min-width:180px;cursor:pointer}
+button.compact{padding:8px 14px;font-size:12px}
 .toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,16px);
        background:var(--panel);color:var(--ink);border:2px solid var(--edge);
        border-radius:8px;padding:12px 20px;font-size:13px;font-weight:700;
@@ -456,6 +487,7 @@ button.small-delete:disabled:hover{color:var(--faint);border-color:var(--edge)}
   <button class="tab-btn" data-tab="blocked" onclick="selectTab('blocked')">Blocked</button>
   <button class="tab-btn" data-tab="sabnzbd" id="nav-sabnzbd" style="display:none" onclick="selectTab('sabnzbd')">SABnzbd</button>
   <button class="tab-btn" data-tab="dupes" id="nav-dupes" style="display:none" onclick="selectTab('dupes')">Cleanup</button>
+  <button class="tab-btn" data-tab="profiles" onclick="selectTab('profiles')">Profiles</button>
   <button class="tab-btn" data-tab="settings" onclick="selectTab('settings')">Settings</button>
   <button class="tab-btn" data-tab="log" onclick="selectTab('log')">Log</button>
 </nav>
@@ -518,11 +550,24 @@ button.small-delete:disabled:hover{color:var(--faint);border-color:var(--edge)}
   </section>
   <section id="sabnzbd-section" class="tab-page" data-tab="sabnzbd"></section>
   <section id="dupes-section" class="tab-page" data-tab="dupes"></section>
+  <section id="profiles-section" class="tab-page" data-tab="profiles">
+    <div class="section-head"><span class="section-title">Profiles &amp; Defaults</span>
+      <span class="section-note" id="profiles-note"></span></div>
+    <div class="mode-line" style="margin-bottom:16px">Quality profiles live in Radarr/Sonarr themselves —
+      edits here are saved straight to them (custom format scores and anything else not shown here are
+      kept as-is). The defaults decide which profile and root folder yArr uses for everything it adds:
+      genre auto-add, surprises and Library requests.</div>
+    <div class="search-row">
+      <button onclick="reloadProfiles(this)">Reload from Radarr/Sonarr</button>
+      <span id="profiles-dirty-note" class="keep-note" style="margin:0"></span>
+    </div>
+    <div id="profiles-body"></div>
+  </section>
   <section id="settings-section" class="tab-page" data-tab="settings">
     <div class="section-head"><span class="section-title">Settings</span></div>
     <div class="mode-line" style="margin-bottom:16px">These take effect immediately — no apps.yaml
-      edit or restart needed. Everything else (root folders, quality profiles, thresholds,
-      credentials) still lives in apps.yaml / the add-on's Configuration tab.</div>
+      edit or restart needed. Quality profiles and the default profile/root folder for new adds are on
+      the Profiles tab; thresholds and credentials still live in apps.yaml / the add-on's Configuration tab.</div>
     <div id="settings-list"></div>
   </section>
   <section id="log-section" class="tab-page" data-tab="log"></section>
@@ -547,6 +592,10 @@ let lastBogusShows = [];
 let calendarViewYear = null, calendarViewMonth = null;
 let searchMediaType = 'movie';
 let allowLibraryDelete = false;
+let arrAdmin = {};
+let detailOpen = null;          // {source, id} while the detail modal shows a library item
+let profilesSig = null;         // last-rendered Profiles tab data, to skip no-op re-renders
+let profilesDirty = false;      // unsaved edits in a profile card — don't re-render over them
 
 function selectTab(tab) {
   currentTab = tab;
@@ -846,6 +895,7 @@ function showDetail(source, i) {
              : source === 'bogusShows' ? lastBogusShows[i]
              : lastLibraryMovies[i];
   if (!item) return;
+  detailOpen = (source === 'movies' || source === 'shows') ? {source, id: item.id} : null;
   document.getElementById('detail-body').innerHTML = `
     <div class="detail-poster">${posterImg(item.poster_url, item.title)}</div>
     <div class="detail-info">
@@ -853,12 +903,157 @@ function showDetail(source, i) {
       <div class="poster-meta">${item.rating!=null ? '★ '+(item.rating||0).toFixed(1)+' · ' : ''}${item.size!=null ? fmtBytes(item.size||0) : ''}</div>
       ${chipsRow(item.genres)}
       <div class="detail-overview">${esc(item.overview) || 'No synopsis available.'}</div>
+      ${detailOpen ? manageBlock(source === 'shows' ? 'sonarr' : 'radarr', item) : ''}
     </div>
   `;
   document.getElementById('detail-modal').classList.add('show');
 }
 function closeDetailModal() {
+  detailOpen = null;
   document.getElementById('detail-modal').classList.remove('show');
+}
+// Re-renders an open library detail modal from fresh data after the
+// 5s poll, so a profile/monitor change shows up without reopening it —
+// skipped while a dropdown inside it has focus, so the poll never
+// closes a <select> out from under the user.
+function refreshOpenDetail() {
+  if (!detailOpen) return;
+  const active = document.activeElement;
+  if (active && active.tagName === 'SELECT' && document.getElementById('detail-modal').contains(active)) return;
+  const list = detailOpen.source === 'shows' ? lastLibraryShows : lastLibraryMovies;
+  const i = list.findIndex(x => x.id === detailOpen.id);
+  if (i >= 0) showDetail(detailOpen.source, i);
+}
+function profileOptions(app, selectedId) {
+  const profiles = (arrAdmin[app] || {}).profiles || [];
+  return profiles.map(p => `<option value="${p.id}" ${p.id === selectedId ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+}
+function monitorToggle(onclickOff, onclickOn, on) {
+  return `<div class="pill-toggle">
+    <button class="${!on?'active':''}" onclick="${onclickOff}">Off</button>
+    <button class="${on?'active':''}" onclick="${onclickOn}">On</button>
+  </div>`;
+}
+function manageBlock(app, item) {
+  const id = JSON.stringify(item.id);
+  const seasons = app === 'sonarr' ? (item.seasons || []) : [];
+  return `<div class="manage-block">
+    <div class="manage-row"><span class="settings-label">Quality profile</span>
+      <select class="text-input" onchange="setItemProfile('${app}', ${id}, parseInt(this.value,10))">
+        ${item.quality_profile_id == null ? '<option selected disabled>unknown</option>' : ''}
+        ${profileOptions(app, item.quality_profile_id)}
+      </select></div>
+    <div class="manage-row"><span class="settings-label">Monitored</span>
+      ${monitorToggle(`setItemMonitored(this,'${app}',${id},false)`, `setItemMonitored(this,'${app}',${id},true)`, item.monitored)}
+      <button class="ghost compact" onclick="runAction(this,'api/library-search',{app:'${app}',id:${id}})">Search now</button>
+      ${app === 'radarr' ? `<span class="section-note">${item.has_file ? 'downloaded' : 'missing'}</span>` : ''}
+    </div>
+    ${seasons.length ? `<table class="list"><thead><tr><th>Season</th><th>Episodes</th><th>Monitored</th><th></th></tr></thead><tbody>
+      ${seasons.map(se => `<tr><td class="title-cell">${se.season_number === 0 ? 'Specials' : 'Season ' + se.season_number}</td>
+        <td class="year">${se.episode_file_count||0} / ${se.episode_count||0}</td>
+        <td>${monitorToggle(`setSeasonMonitored(this,${id},${se.season_number},false)`, `setSeasonMonitored(this,${id},${se.season_number},true)`, se.monitored)}</td>
+        <td><button class="small-delete" onclick="runAction(this,'api/library-search',{app:'sonarr',id:${id},season_number:${se.season_number}})">Search</button></td></tr>`).join('')}
+    </tbody></table>` : ''}
+  </div>`;
+}
+function setItemProfile(app, id, profileId) {
+  runAction(null, 'api/library-set-profile', {app, id, profile_id: profileId});
+}
+function setItemMonitored(btn, app, id, monitored) {
+  runAction(btn, 'api/library-set-monitored', {app, id, monitored});
+}
+function setSeasonMonitored(btn, id, seasonNumber, monitored) {
+  runAction(btn, 'api/library-set-season-monitored', {id, season_number: seasonNumber, monitored});
+}
+
+// Profiles tab
+function profileCard(app, p) {
+  const k = app + '-' + p.id;
+  return `<div class="profile-card" data-app="${app}" data-id="${p.id}">
+    <div class="search-row">
+      <input class="text-input" id="pf-name-${k}" value="${escAttr(p.name)}">
+      <label class="check-label"><input type="checkbox" id="pf-up-${k}" ${p.upgrade_allowed ? 'checked' : ''}> Upgrades allowed</label>
+    </div>
+    <table class="list"><thead><tr><th>Allowed</th><th>Quality</th><th>Upgrade until</th></tr></thead><tbody>
+      ${p.qualities.map(q => `<tr>
+        <td><input type="checkbox" class="pf-q" data-key="${q.key}" ${q.allowed ? 'checked' : ''}></td>
+        <td class="title-cell">${esc(q.name)}${q.group && q.group.length ? ` <span class="section-note">(${q.group.map(esc).join(', ')})</span>` : ''}</td>
+        <td><input type="radio" name="pf-cut-${k}" value="${q.key}" ${q.key === p.cutoff ? 'checked' : ''}></td>
+      </tr>`).join('')}
+    </tbody></table>
+    <div class="search-row" style="margin:12px 0 0">
+      <button class="compact" onclick="saveProfile(this,'${app}',${p.id})">Save</button>
+      <button class="ghost compact" onclick="cloneProfile(this,'${app}',${p.id})">Copy</button>
+      <button class="small-delete" onclick="deleteProfile(this,'${app}',${p.id})">Delete</button>
+    </div>
+  </div>`;
+}
+function defaultsRow(app, label, a) {
+  const folders = a.root_folders || [];
+  return `<div class="settings-row"><div class="settings-label">${label} — new adds use</div>
+    <div class="manage-row">
+      <select class="text-input" onchange="runAction(null,'api/arr-set-default',{app:'${app}',profile:this.value})">
+        ${(a.profiles||[]).some(p => p.name === a.default_profile) ? '' : `<option selected disabled>${esc(a.default_profile || 'not set')} (missing)</option>`}
+        ${(a.profiles||[]).map(p => `<option ${p.name === a.default_profile ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
+      </select>
+      <select class="text-input" onchange="runAction(null,'api/arr-set-default',{app:'${app}',root_folder:this.value})">
+        ${folders.some(r => r.path === a.default_root_folder) ? '' : `<option selected disabled>${esc(a.default_root_folder || 'not set')} (missing)</option>`}
+        ${folders.map(r => `<option value="${escAttr(r.path)}" ${r.path === a.default_root_folder ? 'selected' : ''}>${esc(r.path)}${r.free_space != null ? ' · ' + fmtBytes(r.free_space) + ' free' : ''}</option>`).join('')}
+      </select>
+      <button class="ghost compact" onclick="runAction(this,'api/search-missing',{app:'${app}'},{confirmMsg:'Search ${label} for every missing monitored item now? This can queue a lot of downloads.'})">Search all missing</button>
+    </div></div>`;
+}
+function renderProfiles() {
+  const sig = JSON.stringify(arrAdmin);
+  document.getElementById('profiles-dirty-note').textContent = profilesDirty ? 'Unsaved changes — Save or Reload.' : '';
+  if (sig === profilesSig || profilesDirty) return;
+  // Don't yank a dropdown closed mid-choice either.
+  const active = document.activeElement;
+  if (active && active.tagName === 'SELECT' && document.getElementById('profiles-body').contains(active)) return;
+  profilesSig = sig;
+  const apps = [['radarr', 'Radarr (movies)'], ['sonarr', 'Sonarr (TV)']].filter(([app]) => arrAdmin[app]);
+  document.getElementById('profiles-body').innerHTML = apps.length ? apps.map(([app, label]) => {
+    const a = arrAdmin[app];
+    return `<div class="section-note" style="margin:10px 0 6px">${label}</div>
+      ${defaultsRow(app, label.split(' ')[0], a)}
+      <div style="margin-top:14px">${(a.profiles||[]).length ? a.profiles.map(p => profileCard(app, p)).join('')
+        : '<div class="empty-row">No profiles loaded yet — press Reload from Radarr/Sonarr.</div>'}</div>`;
+  }).join('') : '<div class="empty-row">Waiting for yArr to load profiles…</div>';
+}
+document.addEventListener('input', e => {
+  if (e.target.closest && e.target.closest('.profile-card')) {
+    profilesDirty = true;
+    document.getElementById('profiles-dirty-note').textContent = 'Unsaved changes — Save or Reload.';
+  }
+});
+function saveProfile(btn, app, id) {
+  const card = document.querySelector(`.profile-card[data-app="${app}"][data-id="${id}"]`);
+  const k = app + '-' + id;
+  const cut = card.querySelector(`input[name="pf-cut-${k}"]:checked`);
+  const body = {
+    app, id,
+    name: document.getElementById('pf-name-' + k).value,
+    upgrade_allowed: document.getElementById('pf-up-' + k).checked,
+    cutoff: cut ? parseInt(cut.value, 10) : null,
+    allowed: [...card.querySelectorAll('.pf-q:checked')].map(c => parseInt(c.dataset.key, 10)),
+  };
+  profilesDirty = false; profilesSig = null;
+  runAction(btn, 'api/arr-profile-save', body);
+}
+function cloneProfile(btn, app, id) {
+  const name = prompt('Name for the copy:');
+  if (!name) return;
+  profilesDirty = false; profilesSig = null;
+  runAction(btn, 'api/arr-profile-clone', {app, source_id: id, name});
+}
+function deleteProfile(btn, app, id) {
+  profilesDirty = false; profilesSig = null;
+  runAction(btn, 'api/arr-profile-delete', {app, id},
+            {confirmMsg: 'Delete this quality profile from ' + (app === 'radarr' ? 'Radarr' : 'Sonarr') + '? Anything still using it must be switched first.'});
+}
+function reloadProfiles(btn) {
+  profilesDirty = false; profilesSig = null;
+  runAction(btn, 'api/refresh-arr-admin', {}, {watchLog:false});
 }
 function setSearchMediaType(t) {
   searchMediaType = t;
@@ -1073,6 +1268,7 @@ async function refresh() {
   lastLibraryMovies = d.library_movies || [];
   lastLibraryShows = d.library_shows || [];
   allowLibraryDelete = !!d.allow_library_delete;
+  arrAdmin = d.arr_admin || {};
 
   document.getElementById('search-type-toggle').style.display = d.tv_enabled ? '' : 'none';
   document.getElementById('search-meta').textContent = d.last_search_query
@@ -1092,6 +1288,8 @@ async function refresh() {
     '<div class="mode-line">Deleting from your library is off by default — set <code>allow_library_delete: true</code> in apps.yaml to enable the Delete buttons below. This removes real files, not something yArr added itself.</div>';
   document.getElementById('library-shows-block').style.display = d.tv_enabled ? '' : 'none';
   onLibraryFilterInput();
+  refreshOpenDetail();
+  renderProfiles();
 
   lastBogusShows = d.bogus_shows || [];
   document.getElementById('bogus-shows-block').style.display =
@@ -1112,6 +1310,12 @@ async function refresh() {
         <div class="stat"><div class="lbl">Queue</div><div class="val">${d.sabnzbd_queue_count}</div></div>
         <div class="stat"><div class="lbl">Size left</div><div class="val small">${esc(d.sabnzbd_size_left)||'—'}</div></div>
         <div class="stat"><div class="lbl">ETA</div><div class="val small">${esc(d.sabnzbd_eta)||'—'}</div></div>
+      </div>
+      <div class="search-row">
+        ${d.sabnzbd_paused
+          ? `<button onclick="runAction(this,'api/sabnzbd-resume')">Resume All</button>`
+          : `<button class="ghost" onclick="runAction(this,'api/sabnzbd-pause')">Pause All</button>`}
+        <span class="mode-line" style="margin:0">If SABnzbd has a pause/resume schedule set, it still applies at its next scheduled time.</span>
       </div>
       ${items.length ? `<table class="list"><thead><tr><th>File</th><th>Progress</th><th>Status</th></tr></thead><tbody>
         ${items.map(i => `<tr><td class="title-cell">${esc(i.filename)}</td><td class="year">${(i.percentage||0).toFixed(0)}%</td><td class="year">${esc(i.status)}</td></tr>`).join('')}
@@ -1274,7 +1478,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         path = self.path.split("?", 1)[0].rstrip("/")
         try:
-            if path.endswith("/api/surprise-now"):
+            forwarded = next((ev for suffix, ev in FORWARDED_EVENTS.items() if path.endswith(suffix)), None)
+            if forwarded:
+                body = self._read_json_body()
+                ha_fire_event(forwarded, body if isinstance(body, dict) else {})
+                self._send(200, json.dumps({"ok": True}).encode(), "application/json")
+            elif path.endswith("/api/surprise-now"):
                 ha_fire_event("yarr_surprise_me_now")
                 self._send(200, json.dumps({"ok": True}).encode(), "application/json")
             elif path.endswith("/api/surprise-tv-now"):

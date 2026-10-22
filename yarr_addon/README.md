@@ -57,9 +57,14 @@ monitoring — bundling its own AppDaemon runtime.
   equivalents) are directly editable
   there too. Everything here takes effect immediately, no apps.yaml
   edit or restart needed.
-- **SABnzbd monitoring (optional)**: read-only queue status (speed,
-  ETA, active downloads) as an HA sensor and a web UI card — yArr never
-  queues, pauses, or cancels anything in SABnzbd itself.
+- **SABnzbd monitoring (optional)**: queue status (speed, ETA, active
+  downloads) as an HA sensor and a web UI card, plus global Pause All /
+  Resume All buttons — yArr never queues, cancels, or reorders
+  individual jobs.
+- **Radarr/Sonarr management**: a Profiles tab to edit, copy and delete
+  quality profiles and pick the default profile/root folder for new
+  adds; each Library item's detail view can switch its profile, toggle
+  monitoring (per season for shows) and trigger a search.
 - **Media cleanup (optional)**: scans your NAS (via HA's own `/media`
   share) for files sharing an identical size — a strong, cheap signal
   for duplicate video files — and lists candidate groups in the web

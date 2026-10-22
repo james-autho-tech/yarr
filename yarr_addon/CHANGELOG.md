@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.24.0
+
+- Added a **Profiles** tab: edit, copy and delete Radarr/Sonarr quality
+  profiles (allowed qualities, upgrade-until cutoff, upgrades on/off)
+  without leaving yArr. Edits are read-modify-write on the full profile,
+  so custom format scores and other fields not shown are kept as-is.
+- Pick the **default quality profile and root folder** for new adds
+  (genre auto-add, surprises, Library requests) from dropdowns on the
+  Profiles tab — persisted, overriding apps.yaml's
+  `*_quality_profile_name`/`*_root_folder`. Plus a **Search all
+  missing** button per app.
+- Library detail view now manages the title itself: switch its quality
+  profile, toggle monitored, **Search now** — and for shows, per-season
+  monitoring with episode counts and per-season search.
+- SABnzbd tab gets **Pause All** / **Resume All**. A SABnzbd schedule,
+  if you have one, still applies at its next scheduled time.
+
 ## 0.23.1
 
 - **Fixed Settings-tab toggles (and genre lists/numbers) silently

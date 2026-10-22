@@ -1,5 +1,5 @@
 name: yArr
-version: "0.23.1"
+version: "0.24.0"
 slug: yarr
 description: Automated movie/TV discovery, surprise rotation and library trimming across TMDB/Radarr/Sonarr/Jellyfin, with optional SABnzbd monitoring and NAS duplicate-media scanning (bundled AppDaemon)
 url: https://github.com/james-autho-tech/yarr
@@ -49,8 +49,8 @@ map:
 # per-user played status directly, since TMDB has no concept of "what
 # have I watched" the way a personal account would).
 # Optional: sonarr_url/sonarr_api_key (TV support — leave blank to run
-# movies-only) and sabnzbd_url/sabnzbd_api_key (read-only queue
-# monitoring — leave blank to skip it entirely).
+# movies-only) and sabnzbd_url/sabnzbd_api_key (queue
+# monitoring + global pause/resume — leave blank to skip it entirely).
 options:
   radarr_url: ""
   radarr_api_key: ""

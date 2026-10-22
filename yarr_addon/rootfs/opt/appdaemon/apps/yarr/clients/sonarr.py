@@ -68,6 +68,13 @@ class SonarrClient:
             "genres": s.get("genres", []), "overview": s.get("overview", ""),
             "size": (s.get("statistics") or {}).get("sizeOnDisk", 0),
             "added": s.get("added"),
+            "quality_profile_id": s.get("qualityProfileId"),
+            "seasons": [{
+                "season_number": se.get("seasonNumber"),
+                "monitored": bool(se.get("monitored", False)),
+                "episode_file_count": (se.get("statistics") or {}).get("episodeFileCount", 0),
+                "episode_count": (se.get("statistics") or {}).get("episodeCount", 0),
+            } for se in (s.get("seasons") or []) if se.get("seasonNumber") is not None],
         } for s in (series_list or []) if s.get("tvdbId")]
 
     def get_excluded_tvdb_ids(self) -> set:
@@ -129,6 +136,39 @@ class SonarrClient:
             "has_file": bool(e.get("hasFile", False)),
         } for e in (episodes or []) if e.get("airDateUtc")]
 
+    # -- Profile / library management (the Profiles tab and the Library
+    # tab's detail panel). Profiles are always edited read-modify-write
+    # on the full object Sonarr returns (see core/arr_profiles.py), so
+    # fields yArr doesn't model — custom format scores, language — ride
+    # along untouched instead of being reset by a partial PUT.
+
+    def get_quality_profiles(self) -> list:
+        _, body = self._request("GET", "/qualityprofile")
+        return body or []
+
+    def get_quality_profile(self, profile_id: int) -> dict:
+        _, body = self._request("GET", f"/qualityprofile/{profile_id}")
+        return body
+
+    def create_quality_profile(self, profile: dict) -> dict:
+        _, body = self._request("POST", "/qualityprofile", profile)
+        return body
+
+    def update_quality_profile(self, profile: dict) -> dict:
+        _, body = self._request("PUT", f"/qualityprofile/{profile['id']}", profile)
+        return body
+
+    def delete_quality_profile(self, profile_id: int) -> None:
+        """Sonarr itself refuses (HTTP 400) to delete a profile any
+        movie still uses — that error is surfaced as-is rather than
+        pre-checked here."""
+        self._request("DELETE", f"/qualityprofile/{profile_id}")
+
+    def get_root_folders(self) -> list:
+        _, body = self._request("GET", "/rootfolder")
+        return [{"path": r.get("path"), "free_space": r.get("freeSpace")}
+                for r in (body or []) if r.get("path")]
+
     def resolve_quality_profile_id(self, name: str) -> int:
         _, body = self._request("GET", "/qualityprofile")
         for p in body or []:
@@ -164,6 +204,35 @@ class SonarrClient:
             body["languageProfileId"] = language_profile_id
         _, created = self._request("POST", "/series", body)
         return created["id"]
+
+    def set_series_quality_profile(self, series_ids: list, profile_id: int) -> None:
+        self._request("PUT", "/series/editor", {"seriesIds": series_ids, "qualityProfileId": profile_id})
+
+    def set_series_monitored(self, series_ids: list, monitored: bool) -> None:
+        self._request("PUT", "/series/editor", {"seriesIds": series_ids, "monitored": monitored})
+
+    def set_season_monitored(self, series_id: int, season_number: int, monitored: bool) -> None:
+        """Sonarr has no per-season endpoint — season monitoring lives
+        inside the series object, so this is a read-modify-write of the
+        whole series (same reason as the quality profile edits)."""
+        _, series = self._request("GET", f"/series/{series_id}")
+        for season in series.get("seasons") or []:
+            if season.get("seasonNumber") == season_number:
+                season["monitored"] = monitored
+                break
+        else:
+            raise SonarrError(f"Series {series_id} has no season {season_number}")
+        self._request("PUT", f"/series/{series_id}", series)
+
+    def search_series(self, series_id: int) -> None:
+        self._request("POST", "/command", {"name": "SeriesSearch", "seriesId": series_id})
+
+    def search_season(self, series_id: int, season_number: int) -> None:
+        self._request("POST", "/command",
+                      {"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number})
+
+    def search_missing(self) -> None:
+        self._request("POST", "/command", {"name": "MissingEpisodeSearch"})
 
     def delete_series(self, series_id: int, delete_files: bool = True) -> None:
         self._request("DELETE", f"/series/{series_id}?deleteFiles={'true' if delete_files else 'false'}")
