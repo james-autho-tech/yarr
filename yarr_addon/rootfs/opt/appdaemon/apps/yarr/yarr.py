@@ -92,6 +92,8 @@ class Yarr(hass.Hass):
             self.listen_event(self.on_bulk_delete_duplicates_pressed, "yarr_bulk_delete_duplicates")
             self.listen_event(self.on_delete_junk_entry, "yarr_delete_junk_entry")
             self.listen_event(self.on_bulk_delete_junk_pressed, "yarr_bulk_delete_junk")
+            self.listen_event(self.on_delete_stranded, "yarr_delete_stranded")
+            self.listen_event(self.on_bulk_delete_stranded, "yarr_bulk_delete_stranded")
             self.listen_event(self.on_check_space_pressed, "yarr_check_space_now")
         self.listen_event(self.on_jellyfin_webhook, "yarr_jellyfin_webhook")
 
@@ -115,6 +117,7 @@ class Yarr(hass.Hass):
         # Every handler re-validates the ids it's given against what
         # yArr itself last fetched (profiles, root folders, library
         # rows) before writing anything — same rule as request-add.
+        self._stranded_unpacks = []  # see _walk_media_and_junk; rebuilt by every media scan
         self._arr_admin = {app: {"profiles": [], "root_folders": [], "dv": None, "dv_files": []}
                            for app in ("radarr", "sonarr")}
         for event, handler in (
@@ -1210,10 +1213,17 @@ class Yarr(hass.Hass):
         doesn't actually contain a complete-looking video file, since
         something can finish extracting and still sit under an
         _UNPACK_ name if only the final rename/import step got
-        interrupted."""
+        interrupted.
+
+        Folders that fail only gate (4) — old, inactive, readable, but
+        holding a real video — are returned separately as "stranded"
+        rather than silently skipped: finished content Radarr/Sonarr
+        never imported, which still shows up in Jellyfin as an
+        "UNPACK ..." entry and needs a human decision, not a sweep."""
         age_cutoff = time.time() - self.cfg.junk_min_age_hours * 3600
         media_files = []
         junk_entries = []
+        stranded = []
         for root_path in self.cfg.media_scan_paths:
             for dirpath, dirnames, filenames in os.walk(root_path):
                 keep_dirs = []
@@ -1226,6 +1236,10 @@ class Yarr(hass.Hass):
                     contents = self._dir_contents(full_path) if is_candidate else None
                     if is_candidate and contents is not None and not core_junk.contains_likely_video(contents[1]):
                         junk_entries.append({"path": full_path, "size": contents[0], "is_dir": True})
+                    elif is_candidate and contents is not None:
+                        stranded.append({"path": full_path, "size": contents[0], "videos": [
+                            name for name, size in contents[1]
+                            if core_junk.contains_likely_video([(name, size)])]})
                     else:
                         keep_dirs.append(d)
                 dirnames[:] = keep_dirs
@@ -1245,7 +1259,7 @@ class Yarr(hass.Hass):
                             junk_entries.append({"path": full_path, "size": size, "is_dir": False})
                         continue
                     media_files.append(core_dupes.MediaFile(path=full_path, size=size))
-        return media_files, junk_entries
+        return media_files, junk_entries, stranded
 
     def _all_tracked_media_basenames(self) -> set:
         """Every tracked file's BASENAME — not full path — that Radarr
@@ -1271,7 +1285,7 @@ class Yarr(hass.Hass):
             return
         active_job_names = self._sabnzbd_active_names()
         try:
-            files, junk_entries = self._walk_media_and_junk(active_job_names)
+            files, junk_entries, self._stranded_unpacks = self._walk_media_and_junk(active_job_names)
         except OSError as exc:
             self._log_event(f"Media duplicate scan failed: {exc}", level="error")
             self.publish_status({})
@@ -1580,6 +1594,49 @@ class Yarr(hass.Hass):
 
         self._refresh_jellyfin("junk delete")
 
+        self.publish_status({})
+
+    def _delete_stranded(self, entries):
+        deleted = []
+        for e in entries:
+            try:
+                shutil.rmtree(e["path"])
+            except OSError as exc:
+                self._log_event(f"Could not delete {e['path']!r}: {exc}", level="error")
+                continue
+            self._cleanup_empty_dirs(e["path"])
+            deleted.append(e)
+        gone = {e["path"] for e in deleted}
+        self._stranded_unpacks = [e for e in self._stranded_unpacks if e["path"] not in gone]
+        return deleted
+
+    def on_delete_stranded(self, event_name, data, kwargs):
+        """Deletes one stranded unpack folder — real video inside, so
+        only ever on an explicit button press, and only a path from the
+        last scan's own stranded list."""
+        path = (data or {}).get("path")
+        entry = next((e for e in self._stranded_unpacks if e["path"] == path), None)
+        if entry is None:
+            self._log_event(f"Refused to delete {path!r} — not on the stranded-unpack list.", level="error")
+        elif self._dry_run():
+            self._log_event(f"[dry_run] Would delete stranded unpack folder: {path!r}.")
+        elif self._delete_stranded([entry]):
+            self._log_event(f"Deleted stranded unpack folder: {path!r}.")
+            self._refresh_jellyfin("stranded unpack delete")
+        self.publish_status({})
+
+    def on_bulk_delete_stranded(self, event_name, data, kwargs):
+        entries = list(self._stranded_unpacks)
+        if not entries:
+            return
+        if self._dry_run():
+            self._log_event(f"[dry_run] Would delete {len(entries)} stranded unpack folder(s).")
+        else:
+            deleted = self._delete_stranded(entries)
+            if deleted:
+                freed_gb = sum(e["size"] for e in deleted) / 1_000_000_000
+                self._log_event(f"Deleted {len(deleted)} stranded unpack folder(s) (~{freed_gb:.1f} GB freed).")
+                self._refresh_jellyfin("stranded unpack delete")
         self.publish_status({})
 
     def on_bulk_delete_junk_pressed(self, event_name, data, kwargs):
@@ -2504,6 +2561,7 @@ class Yarr(hass.Hass):
                 "junk_count": len(self.state_data.junk_entries),
                 "junk_bytes": sum(e["size"] for e in self.state_data.junk_entries),
                 "junk_scan_at": self.state_data.junk_scan_at,
+                "stranded_unpacks": self._stranded_unpacks[:100],
                 "disk_used_pct": self.state_data.disk_used_pct,
                 "disk_free_gb": self.state_data.disk_free_gb,
                 "cycle_check_at": self.state_data.cycle_check_at,

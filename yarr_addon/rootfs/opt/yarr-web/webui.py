@@ -69,6 +69,8 @@ FORWARDED_EVENTS = {
     "/api/dv-replace": "yarr_dv_replace",
     "/api/dv-replace-all": "yarr_dv_replace_all",
     "/api/dv-cancel-queued": "yarr_dv_cancel_queued",
+    "/api/delete-stranded": "yarr_delete_stranded",
+    "/api/bulk-delete-stranded": "yarr_bulk_delete_stranded",
     "/api/arr-profile-save": "yarr_arr_profile_save",
     "/api/arr-profile-clone": "yarr_arr_profile_clone",
     "/api/arr-profile-delete": "yarr_arr_profile_delete",
@@ -239,6 +241,7 @@ def build_status():
         "junk_count": attrs.get("junk_count", 0),
         "junk_bytes": attrs.get("junk_bytes", 0),
         "junk_scan_at": attrs.get("junk_scan_at"),
+        "stranded_unpacks": attrs.get("stranded_unpacks", []),
         "disk_used_pct": attrs.get("disk_used_pct"),
         "disk_free_gb": attrs.get("disk_free_gb"),
         "cycle_check_at": attrs.get("cycle_check_at"),
@@ -1412,6 +1415,19 @@ async function refresh() {
         ${junk.map(j => `<tr><td class="title-cell" title="${esc(j.path)}">${esc(baseName(j.path))}${j.is_dir ? ' <span class="section-note">(folder)</span>' : ''}</td><td class="year">${fmtBytes(j.size)}</td>
           <td><button class="small-delete" onclick="runAction(this,'api/delete-junk-entry',{path:${escAttr(JSON.stringify(j.path))}},{confirmMsg:${escAttr(JSON.stringify(j.is_dir ? 'Delete this entire folder and everything inside it? This cannot be undone.' : 'Delete this file from disk now? This cannot be undone.'))}})">Delete</button></td></tr>`).join('')}
       </tbody></table>` : '<div class="empty-row" style="margin-top:14px">No leftover unpack junk found.</div>'}
+
+      <div class="section-head" style="margin-top:30px"><span class="section-title">Stranded Unpacks</span>
+        <span class="section-note">last scan ${d.junk_scan_at ? fmtDate(d.junk_scan_at) : 'never'}</span></div>
+      <div class="mode-line">_UNPACK_/_FAILED_ folders that hold a real, finished video — the extraction completed but the
+        final rename/import never happened, so Radarr/Sonarr don't track them and Jellyfin lists them as "UNPACK …" entries.
+        Not junk (that's why the list above skips them), so nothing here is deleted without a button press. Deleting removes
+        the folder and its video for good, then rescans Jellyfin.</div>
+      ${(d.stranded_unpacks||[]).length ? `<div style="margin:14px 0 0"><button class="ghost" onclick="runAction(this,'api/bulk-delete-stranded',{},{confirmMsg:'Delete all ${d.stranded_unpacks.length} stranded unpack folder(s) and the videos inside them? This cannot be undone.'})">Delete All Stranded</button></div>
+        <table class="list" style="margin:14px 0"><thead><tr><th>Folder</th><th>Video(s)</th><th>Size</th><th></th></tr></thead><tbody>
+        ${d.stranded_unpacks.map(e => `<tr><td class="title-cell" title="${escAttr(e.path)}">${esc(baseName(e.path))}</td>
+          <td class="year">${(e.videos||[]).map(esc).join('<br>')}</td><td class="year">${fmtBytes(e.size)}</td>
+          <td><button class="small-delete" onclick="runAction(this,'api/delete-stranded',{path:${escAttr(JSON.stringify(e.path))}},{confirmMsg:'Delete this folder and the video inside it? This cannot be undone.'})">Delete</button></td></tr>`).join('')}
+        </tbody></table>` : '<div class="empty-row" style="margin-top:14px">No stranded unpack folders found.</div>'}
 
       <div class="section-head" style="margin-top:30px"><span class="section-title">Free Up Space</span>
         <span class="section-note">checked ${d.cycle_check_at ? fmtDate(d.cycle_check_at) : 'never'}</span></div>

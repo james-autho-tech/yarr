@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.26.0
+
+- New **Stranded Unpacks** list on the Cleanup tab: `_UNPACK_`/`_FAILED_`
+  folders that contain a real, finished video — the cause of "UNPACK
+  <show>" entries in Jellyfin that the junk cleanup deliberately skips
+  (it never deletes real video on its own). They used to be skipped
+  silently; now they're listed with Delete / Delete All, followed by a
+  Jellyfin rescan.
+
 ## 0.25.2
 
 - Blocking Dolby Vision now also cancels anything already queued that
