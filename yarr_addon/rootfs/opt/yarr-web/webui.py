@@ -64,6 +64,7 @@ NUMBER_SETTINGS = {
 # before writing anything, so this process never needs to.
 FORWARDED_EVENTS = {
     "/api/refresh-arr-admin": "yarr_refresh_arr_admin",
+    "/api/refresh-jellyfin": "yarr_refresh_jellyfin",
     "/api/arr-profile-save": "yarr_arr_profile_save",
     "/api/arr-profile-clone": "yarr_arr_profile_clone",
     "/api/arr-profile-delete": "yarr_arr_profile_delete",
@@ -514,6 +515,8 @@ button.compact{padding:8px 14px;font-size:12px}
     <div id="library-delete-note"></div>
     <div class="search-row" style="margin-top:14px">
       <button onclick="runAction(this,'api/refresh-library')">Refresh Library</button>
+      <button class="ghost" title="Removes Jellyfin entries for files that no longer exist (dead episodes/movies)"
+              onclick="runAction(this,'api/refresh-jellyfin')">Rescan Jellyfin</button>
       <input class="text-input" id="library-filter-input" type="text"
              placeholder="Filter your library..." oninput="onLibraryFilterInput()">
     </div>

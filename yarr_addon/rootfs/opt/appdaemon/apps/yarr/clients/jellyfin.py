@@ -45,10 +45,11 @@ class JellyfinClient:
 
     def refresh_library(self) -> None:
         """POST /Library/Refresh — the one write this client ever makes
-        (everything else here only reads). Used after deleting a
-        leftover SABnzbd unpack folder so the bogus entry it caused
-        disappears from Jellyfin without waiting for its own scheduled
-        scan."""
+        (everything else here only reads). Used after yArr deletes any
+        media file (junk, duplicates, Library deletes) and by the
+        Library tab's Rescan Jellyfin button, so entries for files that
+        no longer exist disappear without waiting for Jellyfin's own
+        scheduled scan."""
         req = urllib.request.Request(
             f"{self.url}/Library/Refresh", method="POST", headers=self._headers())
         try:

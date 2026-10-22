@@ -421,8 +421,12 @@ Deleting a folder here removes it and everything inside it
 (`shutil.rmtree`, not a single file). After any delete, yArr also asks
 Jellyfin to refresh its library (`POST /Library/Refresh`) so the bogus
 entry disappears right away instead of waiting for Jellyfin's own next
-scheduled scan — the only write this add-on ever makes to Jellyfin;
-everything else is read-only.
+scheduled scan. yArr does the same after duplicate deletes and Library
+deletes, and the Library tab's **Rescan Jellyfin** button triggers one
+on demand — use it when Jellyfin shows episodes or movies whose files
+are gone ("dead" entries that won't play). That library scan is the
+only write this add-on ever makes to Jellyfin; everything else is
+read-only.
 
 **Four gates, every one biased toward "leave it alone"**: something
 only ever gets called junk once it passes all four, and any doubt on

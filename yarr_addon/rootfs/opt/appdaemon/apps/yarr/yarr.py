@@ -102,6 +102,7 @@ class Yarr(hass.Hass):
         self.listen_event(self.on_search_media, "yarr_search_media")
         self.listen_event(self.on_request_add_movie, "yarr_request_add_movie")
         self.listen_event(self.on_refresh_library_pressed, "yarr_refresh_library")
+        self.listen_event(self.on_refresh_jellyfin_pressed, "yarr_refresh_jellyfin")
         self.listen_event(self.on_refresh_calendar_pressed, "yarr_refresh_calendar")
         self.listen_event(self.on_library_delete_movie, "yarr_library_delete_movie")
         if self.cfg.tv_enabled:
@@ -1409,8 +1410,30 @@ class Yarr(hass.Hass):
                     self.sonarr.rescan_library()
                 except SonarrError as exc:
                     self._log_event(f"Sonarr rescan after bulk delete failed: {exc}", level="warn")
+            self._refresh_jellyfin("bulk duplicate delete")
 
         self._save_state()
+        self.publish_status({})
+
+    def _refresh_jellyfin(self, after):
+        """Asks Jellyfin to rescan its libraries after yArr removed media
+        files, so the deleted file's entry disappears instead of
+        lingering as an unplayable "dead" episode/movie until Jellyfin's
+        own scheduled scan. Failure is a warning, never fatal — the
+        delete itself already succeeded."""
+        try:
+            self.jellyfin.refresh_library()
+        except JellyfinError as exc:
+            self._log_event(f"Jellyfin library refresh after {after} failed: {exc}", level="warn")
+
+    def on_refresh_jellyfin_pressed(self, event_name, data, kwargs):
+        try:
+            self.jellyfin.refresh_library()
+        except JellyfinError as exc:
+            self._log_event(f"Could not start a Jellyfin library scan: {exc}", level="error")
+        else:
+            self._log_event("Asked Jellyfin to rescan its libraries — entries for files that no "
+                             "longer exist drop out once the scan finishes (can take a few minutes).")
         self.publish_status({})
 
     def _cleanup_empty_dirs(self, deleted_path):
@@ -1505,6 +1528,7 @@ class Yarr(hass.Hass):
                 self.sonarr.rescan_library()
             except SonarrError as exc:
                 self._log_event(f"Sonarr rescan after duplicate delete failed: {exc}", level="warn")
+        self._refresh_jellyfin("duplicate delete")
 
         for survivor in survivor_paths:
             self._rename_surviving_copy(survivor)
@@ -1548,10 +1572,7 @@ class Yarr(hass.Hass):
         self.state_data.junk_entries = [e for e in self.state_data.junk_entries if e["path"] != path]
         self._log_event(f"Deleted junk {'folder' if entry['is_dir'] else 'file'}: {path!r}.")
 
-        try:
-            self.jellyfin.refresh_library()
-        except JellyfinError as exc:
-            self._log_event(f"Jellyfin library refresh after junk delete failed: {exc}", level="warn")
+        self._refresh_jellyfin("junk delete")
 
         self.publish_status({})
 
@@ -1592,11 +1613,7 @@ class Yarr(hass.Hass):
         self._log_event(f"Bulk junk cleanup: deleted {len(deleted)} item(s) (~{freed_gb:.1f} GB freed).")
 
         if deleted:
-            try:
-                self.jellyfin.refresh_library()
-            except JellyfinError as exc:
-                self._log_event(f"Jellyfin library refresh after bulk junk delete failed: {exc}",
-                                 level="warn")
+            self._refresh_jellyfin("bulk junk delete")
 
         self.publish_status({})
 
@@ -1864,6 +1881,7 @@ class Yarr(hass.Hass):
                          "— requested from the Library tab.")
         self.state_data.library_movies = [m for m in self.state_data.library_movies if m["id"] != movie_id]
         self._save_state()
+        self._refresh_jellyfin("library delete")
         self.publish_status({})
 
     def on_library_delete_show(self, event_name, data, kwargs):
@@ -1895,6 +1913,7 @@ class Yarr(hass.Hass):
                          "— requested from the Library tab.")
         self.state_data.library_shows = [s for s in self.state_data.library_shows if s["id"] != series_id]
         self._save_state()
+        self._refresh_jellyfin("library delete")
         self.publish_status({})
 
     # ------------------------------------------------------------------

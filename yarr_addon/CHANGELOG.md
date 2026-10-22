@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.24.1
+
+- **Fixed dead entries piling up in Jellyfin** after yArr deleted
+  files: duplicate deletes (single and bulk) and Library-tab deletes
+  removed the file and told Radarr/Sonarr, but never told Jellyfin, so
+  the deleted episode/movie stayed listed — and unplayable — until
+  Jellyfin's own scheduled scan. They now trigger a Jellyfin library
+  scan, the same as junk deletes already did.
+- Added a **Rescan Jellyfin** button on the Library tab to clear dead
+  entries on demand.
+
 ## 0.24.0
 
 - Added a **Profiles** tab: edit, copy and delete Radarr/Sonarr quality
