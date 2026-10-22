@@ -130,7 +130,8 @@ class Yarr(hass.Hass):
                 ("yarr_search_missing", self.on_search_missing),
                 ("yarr_dv_block", self.on_dv_block),
                 ("yarr_dv_replace", self.on_dv_replace),
-                ("yarr_dv_replace_all", self.on_dv_replace_all)):
+                ("yarr_dv_replace_all", self.on_dv_replace_all),
+                ("yarr_dv_cancel_queued", self.on_dv_cancel_queued)):
             self.listen_event(handler, event)
         if self.cfg.sabnzbd_enabled:
             self.listen_event(self.on_sabnzbd_pause, "yarr_sabnzbd_pause")
@@ -2230,8 +2231,49 @@ class Yarr(hass.Hass):
                 if not core_dv.is_blocked(profile, format_id):
                     client.update_quality_profile(core_dv.with_block_score(profile, format_id))
 
-        self._arr_write(f"blocked Dolby Vision-without-HDR-fallback releases in every {name} "
-                        "quality profile", write, error=error)
+        if self._arr_write(f"blocked Dolby Vision-without-HDR-fallback releases in every {name} "
+                           "quality profile", write, error=error):
+            # The rule only stops future grabs — clear out what's
+            # already queued too.
+            self._cancel_queued_dv(data.get("app"))
+            self.publish_status({})
+
+    def _cancel_queued_dv(self, app):
+        """Removes every queued release whose title the DV rule matches,
+        with blocklist — cancels it in SABnzbd (removeFromClient) and
+        stops Radarr/Sonarr from ever grabbing that exact release again,
+        then they search for another one (which the rule now filters)."""
+        arr = self._arr(app)
+        if arr is None:
+            return
+        client, error, name = arr
+        try:
+            matches = [q for q in client.get_queue() if core_dv.title_matches(q["title"])]
+        except error as exc:
+            self._log_event(f"Could not read the {name} queue: {exc}", level="error")
+            return
+        if not matches:
+            self._log_event(f"No Dolby Vision-without-fallback downloads queued in {name}.")
+            return
+        if self._dry_run():
+            self._log_event(f"Dry run — would have cancelled {len(matches)} purple download(s) in {name}.")
+            return
+        cancelled = []
+        for q in matches:
+            try:
+                client.remove_queue_item(q["id"], blocklist=True)
+                cancelled.append(q["title"])
+            except error as exc:
+                self._log_event(f"Could not cancel {q['title']!r}: {exc}", level="error")
+        if cancelled:
+            self._log_event(f"Cancelled and blocklisted {len(cancelled)} purple download(s) in {name}: "
+                             + "; ".join(cancelled[:10]) + (" …" if len(cancelled) > 10 else ""))
+
+    def on_dv_cancel_queued(self, event_name, data, kwargs):
+        apps = [(data or {}).get("app")] if (data or {}).get("app") else ["radarr", "sonarr"]
+        for app in apps:
+            self._cancel_queued_dv(app)
+        self.publish_status({})
 
     def _dv_replace_write(self, app, client, f):
         if app == "radarr":

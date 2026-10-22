@@ -1,19 +1,7 @@
-import re
-
 import pytest
 
-from core.dolby_vision import (BLOCK_SCORE, FORMAT_NAME, block_custom_format, find_format_id,
-                               is_blocked, is_dv_without_fallback, with_block_score)
-
-
-def matches_format(title):
-    """Evaluates block_custom_format()'s specs the way Radarr/Sonarr do:
-    every required spec must hold (negated ones must NOT match)."""
-    for spec in block_custom_format()["specifications"]:
-        hit = re.search(spec["fields"][0]["value"], title, re.IGNORECASE) is not None
-        if hit == spec["negate"]:
-            return False
-    return True
+from core.dolby_vision import (BLOCK_SCORE, FORMAT_NAME, find_format_id, is_blocked,
+                               is_dv_without_fallback, title_matches, with_block_score)
 
 
 @pytest.mark.parametrize("title, blocked", [
@@ -27,7 +15,7 @@ def matches_format(title):
     ("DVD.Rip.Movie.2001", False),                               # 'DVD' isn't DV
 ])
 def test_custom_format_matches_only_dv_without_fallback(title, blocked):
-    assert matches_format(title) is blocked
+    assert title_matches(title) is blocked
 
 
 def test_with_block_score_updates_existing_or_appends():

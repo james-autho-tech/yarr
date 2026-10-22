@@ -68,6 +68,7 @@ FORWARDED_EVENTS = {
     "/api/dv-block": "yarr_dv_block",
     "/api/dv-replace": "yarr_dv_replace",
     "/api/dv-replace-all": "yarr_dv_replace_all",
+    "/api/dv-cancel-queued": "yarr_dv_cancel_queued",
     "/api/arr-profile-save": "yarr_arr_profile_save",
     "/api/arr-profile-clone": "yarr_arr_profile_clone",
     "/api/arr-profile-delete": "yarr_arr_profile_delete",
@@ -1031,7 +1032,8 @@ function dvBlock(app, label, a) {
         releases are never grabbed again (hybrid DV + HDR10 releases are still allowed).</div>
     </div>
     <div class="manage-row">${status}
-      ${blocked ? '' : `<button class="compact" onclick="runAction(this,'api/dv-block',{app:'${app}'})">Block Dolby Vision</button>`}
+      ${blocked ? `<button class="ghost compact" onclick="runAction(this,'api/dv-cancel-queued',{app:'${app}'})">Cancel queued purple downloads</button>`
+                : `<button class="compact" onclick="runAction(this,'api/dv-block',{app:'${app}'})">Block Dolby Vision</button>`}
     </div></div>
     ${files.length ? `<div class="mode-line" style="margin:6px 0">${files.length} file(s) already in your library are Dolby Vision without fallback.
         Replace deletes the file and searches for another copy — it's unavailable until the new one downloads.</div>

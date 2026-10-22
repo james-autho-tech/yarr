@@ -16,6 +16,7 @@ Two halves:
   "DV HDR10"/"DV HLG"/"DV SDR" for ones with a fallback layer."""
 
 import copy
+import re
 
 FORMAT_NAME = "yArr: Dolby Vision without HDR fallback"
 BLOCK_SCORE = -10000
@@ -41,6 +42,18 @@ def block_custom_format() -> dict:
              "fields": [{"name": "value", "value": _FALLBACK_RE}]},
         ],
     }
+
+
+def title_matches(title) -> bool:
+    """Python-side evaluation of block_custom_format() against a release
+    title, the way Radarr/Sonarr evaluate it (every spec is required; a
+    negated spec must NOT match) — used to find already-queued releases
+    the new rule would have rejected."""
+    for spec in block_custom_format()["specifications"]:
+        hit = re.search(spec["fields"][0]["value"], title or "", re.IGNORECASE) is not None
+        if hit == spec["negate"]:
+            return False
+    return True
 
 
 def find_format_id(custom_formats) -> int:

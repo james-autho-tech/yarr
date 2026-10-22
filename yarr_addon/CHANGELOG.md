@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.25.2
+
+- Blocking Dolby Vision now also cancels anything already queued that
+  the rule matches — removed from Radarr's/Sonarr's queue and SABnzbd
+  with that exact release blocklisted, so a clean copy is searched for
+  instead. Also available on demand: **Cancel queued purple
+  downloads** on the Profiles tab.
+
 ## 0.25.1
 
 - Header links to Radarr, Sonarr, SABnzbd and Jellyfin's own web UIs
