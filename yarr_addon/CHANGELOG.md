@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.24.2
+
+- Fixed Profiles-tab actions (delete, save, copy, set default) being
+  refused as "unknown profile" for the first minute or so after yArr
+  restarts — the profile list now reloads on demand instead of waiting
+  for the startup refresh.
+
 ## 0.24.1
 
 - **Fixed dead entries piling up in Jellyfin** after yArr deleted

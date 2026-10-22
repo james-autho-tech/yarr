@@ -1961,7 +1961,15 @@ class Yarr(hass.Hass):
         self.publish_status({})
 
     def _known_profile(self, app, profile_id):
-        return next((p for p in self._arr_admin[app]["profiles"] if p["id"] == profile_id), None)
+        """Reloads once on a miss: right after a restart the startup
+        refresh can still be queued behind the duplicate scan, and a
+        profile created in Radarr/Sonarr directly isn't known until the
+        next refresh either — neither should make a valid click fail."""
+        def find():
+            return next((p for p in self._arr_admin[app]["profiles"] if p["id"] == profile_id), None)
+        if find() is None:
+            self._refresh_arr_admin()
+        return find()
 
     def _arr_write(self, description, write, *, error, refresh_library=False):
         """Shared tail of every management action: honours dry run the
@@ -2057,6 +2065,8 @@ class Yarr(hass.Hass):
         if arr is None:
             return
         _, _, name = arr
+        if not self._arr_admin[app]["profiles"]:
+            self._refresh_arr_admin()  # same startup race as _known_profile
         admin = self._arr_admin[app]
         profile_name, root_folder = data.get("profile"), data.get("root_folder")
         if profile_name is not None:
