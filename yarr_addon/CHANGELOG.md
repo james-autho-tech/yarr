@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.26.1
+
+- Read-only folder-layout check (`yarr_check_paths` event): SABnzbd's
+  download/complete/category folders, Radarr/Sonarr root folders and
+  remote path mappings, and Jellyfin's library folders — to find a
+  download folder Jellyfin is scanning. Never includes API keys.
+
 ## 0.26.0
 
 - New **Stranded Unpacks** list on the Cleanup tab: `_UNPACK_`/`_FAILED_`

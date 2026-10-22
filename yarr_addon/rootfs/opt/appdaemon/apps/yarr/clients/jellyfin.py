@@ -43,6 +43,13 @@ class JellyfinClient:
         except urllib.error.HTTPError as exc:
             raise JellyfinError(f"GET {path} failed: HTTP {exc.code}") from exc
 
+    def get_library_folders(self) -> list:
+        """-> [{name, type, locations}] — every Jellyfin library and the
+        folders it scans (read-only)."""
+        return [{"name": f.get("Name"), "type": f.get("CollectionType"),
+                 "locations": f.get("Locations") or []}
+                for f in self._get("/Library/VirtualFolders") or []]
+
     def refresh_library(self) -> None:
         """POST /Library/Refresh — the one write this client ever makes
         (everything else here only reads). Used after yArr deletes any

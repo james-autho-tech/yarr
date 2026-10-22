@@ -117,6 +117,7 @@ class Yarr(hass.Hass):
         # Every handler re-validates the ids it's given against what
         # yArr itself last fetched (profiles, root folders, library
         # rows) before writing anything — same rule as request-add.
+        self._paths_report = None  # on_check_paths
         self._stranded_unpacks = []  # see _walk_media_and_junk; rebuilt by every media scan
         self._arr_admin = {app: {"profiles": [], "root_folders": [], "dv": None, "dv_files": []}
                            for app in ("radarr", "sonarr")}
@@ -134,7 +135,8 @@ class Yarr(hass.Hass):
                 ("yarr_dv_block", self.on_dv_block),
                 ("yarr_dv_replace", self.on_dv_replace),
                 ("yarr_dv_replace_all", self.on_dv_replace_all),
-                ("yarr_dv_cancel_queued", self.on_dv_cancel_queued)):
+                ("yarr_dv_cancel_queued", self.on_dv_cancel_queued),
+                ("yarr_check_paths", self.on_check_paths)):
             self.listen_event(handler, event)
         if self.cfg.sabnzbd_enabled:
             self.listen_event(self.on_sabnzbd_pause, "yarr_sabnzbd_pause")
@@ -2402,6 +2404,32 @@ class Yarr(hass.Hass):
         self._refresh_jellyfin("replacing Dolby Vision files")
         self.publish_status({})
 
+    def on_check_paths(self, event_name, data, kwargs):
+        """Read-only snapshot of where everything lives — SABnzbd's
+        download/complete/category folders, Radarr/Sonarr root folders
+        and remote path mappings, Jellyfin's library folders — to spot a
+        download folder sitting inside a folder Jellyfin scans (the
+        cause of "UNPACK ..." entries appearing in Jellyfin)."""
+        report, errors = {}, []
+        for key, fetch, error in (
+                ("sabnzbd", lambda: self.sabnzbd.get_folder_config() if self.sabnzbd else None, SABnzbdError),
+                ("jellyfin", self.jellyfin.get_library_folders, JellyfinError),
+                ("radarr_roots", self.radarr.get_root_folders, RadarrError),
+                ("radarr_mappings", self.radarr.get_remote_path_mappings, RadarrError),
+                ("sonarr_roots", lambda: self.sonarr.get_root_folders() if self.sonarr else None, SonarrError),
+                ("sonarr_mappings", lambda: self.sonarr.get_remote_path_mappings() if self.sonarr else None,
+                 SonarrError)):
+            try:
+                report[key] = fetch()
+            except (error, OSError) as exc:
+                errors.append(f"{key}: {exc}")
+        report["errors"] = errors
+        report["checked_at"] = datetime.now(timezone.utc).isoformat()
+        self._paths_report = report
+        self._log_event("Checked download/library folder layout" + (f" ({len(errors)} error(s))" if errors else "") + ".",
+                         level="warn" if errors else "info")
+        self.publish_status({})
+
     # ------------------------------------------------------------------
     # SABNZBD: monitoring + global pause/resume
     # ------------------------------------------------------------------
@@ -2582,5 +2610,6 @@ class Yarr(hass.Hass):
             admin_attrs[app] = {**self._arr_admin[app],
                                 "default_profile": self._arr_default(app, "profile"),
                                 "default_root_folder": self._arr_default(app, "root_folder")}
+        admin_attrs["paths"] = self._paths_report
         self.set_state("sensor.yarr_arr_admin", state="OK", attributes=admin_attrs)
         self.set_state("sensor.yarr_heartbeat", state=datetime.now(timezone.utc).isoformat())

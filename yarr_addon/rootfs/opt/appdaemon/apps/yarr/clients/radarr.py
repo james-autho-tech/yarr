@@ -174,6 +174,11 @@ class RadarrClient:
         _, body = self._request("POST", "/customformat", custom_format)
         return body
 
+    def get_remote_path_mappings(self) -> list:
+        _, body = self._request("GET", "/remotepathmapping")
+        return [{"host": m.get("host"), "remote_path": m.get("remotePath"), "local_path": m.get("localPath")}
+                for m in body or []]
+
     def get_root_folders(self) -> list:
         _, body = self._request("GET", "/rootfolder")
         return [{"path": r.get("path"), "free_space": r.get("freeSpace")}
