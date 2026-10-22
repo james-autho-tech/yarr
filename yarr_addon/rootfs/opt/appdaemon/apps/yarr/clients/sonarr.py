@@ -164,6 +164,14 @@ class SonarrClient:
         pre-checked here."""
         self._request("DELETE", f"/qualityprofile/{profile_id}")
 
+    def get_custom_formats(self) -> list:
+        _, body = self._request("GET", "/customformat")
+        return body or []
+
+    def create_custom_format(self, custom_format: dict) -> dict:
+        _, body = self._request("POST", "/customformat", custom_format)
+        return body
+
     def get_root_folders(self) -> list:
         _, body = self._request("GET", "/rootfolder")
         return [{"path": r.get("path"), "free_space": r.get("freeSpace")}
@@ -230,6 +238,31 @@ class SonarrClient:
     def search_season(self, series_id: int, season_number: int) -> None:
         self._request("POST", "/command",
                       {"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number})
+
+    def get_episode_files_with_media_info(self, series_ids: list) -> list:
+        """-> [{id, series_id, season_number, file_name, dynamic_range}]
+        for every episode file of the given series. /episodefile needs a
+        seriesId (see get_all_episode_file_paths), hence one call each."""
+        out = []
+        for series_id in series_ids:
+            _, files = self._request("GET", f"/episodefile?seriesId={series_id}")
+            for f in files or []:
+                out.append({
+                    "id": f.get("id"), "series_id": series_id,
+                    "season_number": f.get("seasonNumber"),
+                    "file_name": posixpath.basename(f.get("relativePath") or f.get("path") or ""),
+                    "dynamic_range": (f.get("mediaInfo") or {}).get("videoDynamicRangeType"),
+                })
+        return out
+
+    def delete_episode_file_and_search(self, series_id: int, episode_file_id: int) -> None:
+        """Deletes one episode file, then searches for just the episode(s)
+        it held — a multi-episode file covers several."""
+        _, episodes = self._request("GET", f"/episode?seriesId={series_id}")
+        episode_ids = [e["id"] for e in episodes or [] if e.get("episodeFileId") == episode_file_id]
+        self._request("DELETE", f"/episodefile/{episode_file_id}")
+        if episode_ids:
+            self._request("POST", "/command", {"name": "EpisodeSearch", "episodeIds": episode_ids})
 
     def search_missing(self) -> None:
         self._request("POST", "/command", {"name": "MissingEpisodeSearch"})

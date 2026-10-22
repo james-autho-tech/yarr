@@ -72,6 +72,10 @@ class RadarrClient:
             "added": m.get("added"),
             "quality_profile_id": m.get("qualityProfileId"),
             "has_file": bool(m.get("hasFile", False)),
+            # e.g. "DV", "DV HDR10", "HDR10", "" for SDR — see core/dolby_vision.py
+            "dynamic_range": ((m.get("movieFile") or {}).get("mediaInfo") or {}).get("videoDynamicRangeType"),
+            "movie_file_id": (m.get("movieFile") or {}).get("id"),
+            "file_name": posixpath.basename((m.get("movieFile") or {}).get("path") or ""),
         } for m in (movies or [])]
 
     def get_excluded_tmdb_ids(self) -> set:
@@ -162,6 +166,14 @@ class RadarrClient:
         pre-checked here."""
         self._request("DELETE", f"/qualityprofile/{profile_id}")
 
+    def get_custom_formats(self) -> list:
+        _, body = self._request("GET", "/customformat")
+        return body or []
+
+    def create_custom_format(self, custom_format: dict) -> dict:
+        _, body = self._request("POST", "/customformat", custom_format)
+        return body
+
     def get_root_folders(self) -> list:
         _, body = self._request("GET", "/rootfolder")
         return [{"path": r.get("path"), "free_space": r.get("freeSpace")}
@@ -238,6 +250,9 @@ class RadarrClient:
 
     def search_movies(self, movie_ids: list) -> None:
         self._request("POST", "/command", {"name": "MoviesSearch", "movieIds": movie_ids})
+
+    def delete_movie_file(self, movie_file_id: int) -> None:
+        self._request("DELETE", f"/moviefile/{movie_file_id}")
 
     def search_missing(self) -> None:
         self._request("POST", "/command", {"name": "MissingMoviesSearch"})

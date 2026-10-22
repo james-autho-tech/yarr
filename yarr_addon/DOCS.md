@@ -296,6 +296,19 @@ with TV enabled), read live from them:
 - **Search all missing** asks Radarr/Sonarr to search for every
   monitored item without a file — can queue a lot at once.
 
+**Purple picture fix (Dolby Vision)**: Dolby Vision files with no
+HDR10 fallback layer (profile 5, common on streaming WEB-DLs) play with
+a purple/green cast on any client that can't decode Dolby Vision itself
+when Jellyfin can't tone-map them during a transcode. **Block Dolby
+Vision** creates a custom format in Radarr/Sonarr — release title says
+DV/DoVi/Dolby Vision *and* doesn't also say HDR10/HDR10+/HLG — and
+scores it -10000 in every quality profile, so those releases are never
+grabbed (hybrid DV + HDR10 releases, which fall back fine, are still
+allowed). Below it, every library file whose media info reports plain
+"DV" is listed; **Replace** deletes that file and searches for another
+copy (only enabled once blocked, so the search can't grab another
+purple one), then rescans Jellyfin. Re-checked on every library refresh.
+
 Per title, click any poster on the Library tab: the detail view now
 has a **Quality profile** dropdown, a **Monitored** toggle and **Search
 now**; shows also list each season with its own monitored toggle,

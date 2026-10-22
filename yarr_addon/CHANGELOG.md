@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.25.0
+
+- **Purple picture fix**: Profiles tab can now block Dolby Vision
+  releases with no HDR10 fallback — the ones that play purple/green when
+  they can't be transcoded — in Radarr and Sonarr with one button (a
+  custom format scored -10000 in every quality profile; hybrid DV +
+  HDR10 releases are still allowed). It also lists the files already in
+  your library that have the problem, with Replace / Replace all to
+  delete them and search for a non-purple copy.
+
 ## 0.24.2
 
 - Fixed Profiles-tab actions (delete, save, copy, set default) being

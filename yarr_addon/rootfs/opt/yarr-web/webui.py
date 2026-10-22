@@ -65,6 +65,9 @@ NUMBER_SETTINGS = {
 FORWARDED_EVENTS = {
     "/api/refresh-arr-admin": "yarr_refresh_arr_admin",
     "/api/refresh-jellyfin": "yarr_refresh_jellyfin",
+    "/api/dv-block": "yarr_dv_block",
+    "/api/dv-replace": "yarr_dv_replace",
+    "/api/dv-replace-all": "yarr_dv_replace_all",
     "/api/arr-profile-save": "yarr_arr_profile_save",
     "/api/arr-profile-clone": "yarr_arr_profile_clone",
     "/api/arr-profile-delete": "yarr_arr_profile_delete",
@@ -1006,6 +1009,33 @@ function defaultsRow(app, label, a) {
       <button class="ghost compact" onclick="runAction(this,'api/search-missing',{app:'${app}'},{confirmMsg:'Search ${label} for every missing monitored item now? This can queue a lot of downloads.'})">Search all missing</button>
     </div></div>`;
 }
+function dvBlock(app, label, a) {
+  const dv = a.dv || {};
+  const files = a.dv_files || [];
+  const blocked = dv.total_profiles && dv.blocked_profiles === dv.total_profiles;
+  const status = blocked ? '<span class="badge">Blocked in every profile</span>'
+    : `<span class="pill deleting_soon">${dv.format_id ? `blocked in ${dv.blocked_profiles||0} of ${dv.total_profiles||0} profiles` : 'not blocked'}</span>`;
+  return `<div class="settings-row list-row"><div>
+      <div class="settings-label">Purple picture fix — ${label}</div>
+      <div class="settings-desc">Dolby Vision files with no HDR10 fallback play purple/green on anything that can't decode
+        Dolby Vision itself. Blocking adds a custom format scored ${-10000} to every ${label} quality profile, so those
+        releases are never grabbed again (hybrid DV + HDR10 releases are still allowed).</div>
+    </div>
+    <div class="manage-row">${status}
+      ${blocked ? '' : `<button class="compact" onclick="runAction(this,'api/dv-block',{app:'${app}'})">Block Dolby Vision</button>`}
+    </div></div>
+    ${files.length ? `<div class="mode-line" style="margin:6px 0">${files.length} file(s) already in your library are Dolby Vision without fallback.
+        Replace deletes the file and searches for another copy — it's unavailable until the new one downloads.</div>
+      <table class="list"><thead><tr><th>Title</th><th></th><th>File</th><th></th></tr></thead><tbody>
+      ${files.map(f => `<tr><td class="title-cell">${esc(f.title)}</td><td class="year">${esc(f.detail)}</td>
+        <td class="year" title="${escAttr(f.file_name)}">${esc(f.file_name).slice(0,60)}</td>
+        <td><button class="small-delete" ${blocked ? '' : 'disabled title="Block first"'}
+          onclick="runAction(this,'api/dv-replace',{app:'${app}',file_id:${f.id}},{confirmMsg:'Delete this purple file and search for a replacement?'})">Replace</button></td></tr>`).join('')}
+      </tbody></table>
+      <div class="search-row" style="margin-top:10px"><button class="ghost compact" ${blocked ? '' : 'disabled'}
+        onclick="runAction(this,'api/dv-replace-all',{app:'${app}'},{confirmMsg:'Delete all ${files.length} purple Dolby Vision file(s) and search for replacements? They are unavailable until the new copies download.'})">Replace all ${files.length}</button></div>`
+      : '<div class="mode-line" style="margin:6px 0">No Dolby Vision-without-fallback files found in your library (checked on each library refresh).</div>'}`;
+}
 function renderProfiles() {
   const sig = JSON.stringify(arrAdmin);
   document.getElementById('profiles-dirty-note').textContent = profilesDirty ? 'Unsaved changes — Save or Reload.' : '';
@@ -1019,6 +1049,7 @@ function renderProfiles() {
     const a = arrAdmin[app];
     return `<div class="section-note" style="margin:10px 0 6px">${label}</div>
       ${defaultsRow(app, label.split(' ')[0], a)}
+      ${dvBlock(app, label.split(' ')[0], a)}
       <div style="margin-top:14px">${(a.profiles||[]).length ? a.profiles.map(p => profileCard(app, p)).join('')
         : '<div class="empty-row">No profiles loaded yet — press Reload from Radarr/Sonarr.</div>'}</div>`;
   }).join('') : '<div class="empty-row">Waiting for yArr to load profiles…</div>';

@@ -17,6 +17,7 @@ from core import library as core_library
 from core import queue as core_queue
 from core import calendar as core_calendar
 from core import arr_profiles as core_arr_profiles
+from core import dolby_vision as core_dv
 
 from clients.tmdb import TMDBClient, TMDBError
 from clients.radarr import RadarrClient, RadarrError
@@ -113,8 +114,8 @@ class Yarr(hass.Hass):
         # Every handler re-validates the ids it's given against what
         # yArr itself last fetched (profiles, root folders, library
         # rows) before writing anything — same rule as request-add.
-        self._arr_admin = {"radarr": {"profiles": [], "root_folders": []},
-                           "sonarr": {"profiles": [], "root_folders": []}}
+        self._arr_admin = {app: {"profiles": [], "root_folders": [], "dv": None, "dv_files": []}
+                           for app in ("radarr", "sonarr")}
         for event, handler in (
                 ("yarr_refresh_arr_admin", self.on_refresh_arr_admin),
                 ("yarr_arr_profile_save", self.on_arr_profile_save),
@@ -125,7 +126,10 @@ class Yarr(hass.Hass):
                 ("yarr_library_set_monitored", self.on_library_set_monitored),
                 ("yarr_library_set_season_monitored", self.on_library_set_season_monitored),
                 ("yarr_library_search", self.on_library_search),
-                ("yarr_search_missing", self.on_search_missing)):
+                ("yarr_search_missing", self.on_search_missing),
+                ("yarr_dv_block", self.on_dv_block),
+                ("yarr_dv_replace", self.on_dv_replace),
+                ("yarr_dv_replace_all", self.on_dv_replace_all)):
             self.listen_event(handler, event)
         if self.cfg.sabnzbd_enabled:
             self.listen_event(self.on_sabnzbd_pause, "yarr_sabnzbd_pause")
@@ -1637,6 +1641,7 @@ class Yarr(hass.Hass):
         self.state_data.library_synced_at = datetime.now(timezone.utc).isoformat()
         self._save_state()
         self._refresh_arr_admin()
+        self._refresh_dv_files()
 
     def on_refresh_library_pressed(self, event_name, data, kwargs):
         self.tick_refresh_library({})
@@ -1948,11 +1953,15 @@ class Yarr(hass.Hass):
                 continue
             client, error, name = arr
             try:
-                self._arr_admin[app] = {
-                    "profiles": [core_arr_profiles.summarize_profile(p)
-                                 for p in client.get_quality_profiles()],
+                profiles = client.get_quality_profiles()
+                format_id = core_dv.find_format_id(client.get_custom_formats())
+                self._arr_admin[app].update({
+                    "profiles": [core_arr_profiles.summarize_profile(p) for p in profiles],
                     "root_folders": client.get_root_folders(),
-                }
+                    "dv": {"format_id": format_id,
+                           "blocked_profiles": sum(core_dv.is_blocked(p, format_id) for p in profiles),
+                           "total_profiles": len(profiles)},
+                })
             except error as exc:
                 self._log_event(f"{name} profile/root folder refresh failed: {exc}", level="error")
 
@@ -2173,6 +2182,125 @@ class Yarr(hass.Hass):
         client, error, name = arr
         self._arr_write(f"started a {name} search for everything missing", client.search_missing,
                         error=error)
+
+    # Dolby Vision without HDR fallback ("purple picture") — see
+    # core/dolby_vision.py for what this is and why it's blocked.
+
+    def _refresh_dv_files(self):
+        """Lists library files whose video is Dolby Vision with no
+        fallback layer, from Radarr's/Sonarr's own media info. Movies
+        come free with the library listing; episodes need one
+        /episodefile call per series, so this only runs with the
+        library refresh, not after every Profiles-tab action."""
+        if self.missing_secrets:
+            return
+        self._arr_admin["radarr"]["dv_files"] = [
+            {"id": m["movie_file_id"], "item_id": m["id"], "title": m["title"],
+             "detail": str(m.get("year") or ""), "file_name": m.get("file_name", "")}
+            for m in self.state_data.library_movies
+            if m.get("movie_file_id") and core_dv.is_dv_without_fallback(m.get("dynamic_range"))]
+        if not self.cfg.tv_enabled:
+            return
+        titles = {s["id"]: s["title"] for s in self.state_data.library_shows}
+        try:
+            files = self.sonarr.get_episode_files_with_media_info(list(titles))
+        except SonarrError as exc:
+            self._log_event(f"Dolby Vision file check (Sonarr) failed: {exc}", level="warn")
+            return
+        self._arr_admin["sonarr"]["dv_files"] = [
+            {"id": f["id"], "item_id": f["series_id"], "title": titles.get(f["series_id"], "?"),
+             "detail": f"Season {f['season_number']}", "file_name": f["file_name"]}
+            for f in files if f.get("id") and core_dv.is_dv_without_fallback(f.get("dynamic_range"))]
+
+    def on_dv_block(self, event_name, data, kwargs):
+        """Creates the custom format if missing, then scores it
+        BLOCK_SCORE in every quality profile so Radarr/Sonarr reject
+        those releases from now on — including as upgrades."""
+        arr = self._arr((data or {}).get("app"))
+        if arr is None:
+            return
+        client, error, name = arr
+
+        def write():
+            format_id = core_dv.find_format_id(client.get_custom_formats())
+            if format_id is None:
+                format_id = client.create_custom_format(core_dv.block_custom_format())["id"]
+            for profile in client.get_quality_profiles():
+                if not core_dv.is_blocked(profile, format_id):
+                    client.update_quality_profile(core_dv.with_block_score(profile, format_id))
+
+        self._arr_write(f"blocked Dolby Vision-without-HDR-fallback releases in every {name} "
+                        "quality profile", write, error=error)
+
+    def _dv_replace_write(self, app, client, f):
+        if app == "radarr":
+            client.delete_movie_file(f["id"])
+            client.search_movies([f["item_id"]])
+        else:
+            client.delete_episode_file_and_search(f["item_id"], f["id"])
+
+    def _dv_replace_ready(self, app):
+        """-> (client, error, name) once replacing is safe, else None
+        (logged). Replacing before blocking would just let the search
+        grab another Dolby Vision copy."""
+        arr = self._arr(app)
+        if arr is None:
+            return None
+        dv = self._arr_admin[app].get("dv") or {}
+        if not dv.get("total_profiles") or dv.get("blocked_profiles") != dv.get("total_profiles"):
+            self._log_event(f"Block Dolby Vision in {arr[2]} first — otherwise the replacement search "
+                             "could grab another purple copy.", level="error")
+            self.publish_status({})
+            return None
+        return arr
+
+    def on_dv_replace(self, event_name, data, kwargs):
+        data = data or {}
+        app = data.get("app")
+        arr = self._dv_replace_ready(app)
+        if arr is None:
+            return
+        client, error, name = arr
+        f = next((x for x in self._arr_admin[app]["dv_files"] if x["id"] == data.get("file_id")), None)
+        if f is None:
+            self._log_event(f"Refused — file {data.get('file_id')!r} isn't on the Dolby Vision list.",
+                             level="error")
+            self.publish_status({})
+            return
+        if self._arr_write(f"deleted the purple Dolby Vision file for {f['title']!r} {f['detail']} "
+                           f"and searched {name} for a replacement",
+                           lambda: self._dv_replace_write(app, client, f), error=error):
+            self._after_dv_replace(app, [f])
+
+    def on_dv_replace_all(self, event_name, data, kwargs):
+        app = (data or {}).get("app")
+        arr = self._dv_replace_ready(app)
+        if arr is None:
+            return
+        client, error, name = arr
+        files = list(self._arr_admin[app]["dv_files"])
+        if not files:
+            return
+        done = []
+
+        def write():
+            for f in files:
+                self._dv_replace_write(app, client, f)
+                done.append(f)
+
+        self._arr_write(f"deleted {len(files)} purple Dolby Vision file(s) and searched {name} for "
+                        "replacements", write, error=error)
+        if done:
+            self._after_dv_replace(app, done)
+
+    def _after_dv_replace(self, app, replaced):
+        if self._dry_run():
+            return
+        gone = {f["id"] for f in replaced}
+        self._arr_admin[app]["dv_files"] = [f for f in self._arr_admin[app]["dv_files"]
+                                            if f["id"] not in gone]
+        self._refresh_jellyfin("replacing Dolby Vision files")
+        self.publish_status({})
 
     # ------------------------------------------------------------------
     # SABNZBD: monitoring + global pause/resume
