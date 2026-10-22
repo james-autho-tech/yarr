@@ -62,6 +62,8 @@ class Yarr(hass.Hass):
         self._jellyfin_user_id = None
         self._ensure_boolean_states()
         self._ensure_value_states()
+        self._listen_for_toggle_changes()
+        self._listen_for_value_changes()
 
         # Plain custom HA events, not input_button entities — a real
         # install showed HA's Config REST API 404s on input_boolean/
@@ -155,58 +157,92 @@ class Yarr(hass.Hass):
     def _learn_genres_from_library(self) -> bool:
         return self.get_state("input_boolean.yarr_learn_genres_from_library") == "on"
 
+    # entity_id -> (settings key, apps.yaml-derived default, friendly
+    # name, icon). The settings key is None for the two keep-surprise
+    # flags, which are single-shot per-pick signals (yarr.py itself
+    # flips them back to "off" once consumed) rather than a durable
+    # preference — losing one across a restart just means the next
+    # pending pick isn't auto-kept, nowhere near as costly as an on/off
+    # feature toggle silently reverting, so they're not persisted below.
+    def _boolean_entity_defaults(self):
+        return {
+            "input_boolean.yarr_enable": (
+                "yarr_enable", "on", "yArr Engine Master Switch", "mdi:movie-open-play"),
+            "input_boolean.yarr_keep_surprise": (
+                None, "off", "yArr: Keep the pending surprise film", "mdi:heart"),
+            "input_boolean.yarr_keep_surprise_tv": (
+                None, "off", "yArr: Keep the pending surprise show", "mdi:heart"),
+            "input_boolean.yarr_dry_run": (
+                "dry_run", "on" if self.cfg.dry_run else "off",
+                "yArr: Dry run (log only, no real adds/deletes)", "mdi:test-tube"),
+            "input_boolean.yarr_genre_auto_add_enabled": (
+                "genre_auto_add_enabled", "on" if self.cfg.genre_auto_add_enabled else "off",
+                "yArr: Genre auto-add (movies)", "mdi:movie-search-outline"),
+            "input_boolean.yarr_tv_genre_auto_add_enabled": (
+                "tv_genre_auto_add_enabled", "on" if self.cfg.tv_genre_auto_add_enabled else "off",
+                "yArr: Genre auto-add (TV)", "mdi:movie-search-outline"),
+            "input_boolean.yarr_surprise_enabled": (
+                "surprise_enabled", "on" if self.cfg.surprise_enabled else "off",
+                "yArr: Surprise me (movies)", "mdi:dice-5-outline"),
+            "input_boolean.yarr_tv_surprise_enabled": (
+                "tv_surprise_enabled", "on" if self.cfg.tv_surprise_enabled else "off",
+                "yArr: Surprise me (TV)", "mdi:dice-5-outline"),
+            "input_boolean.yarr_surprise_requires_approval": (
+                "surprise_requires_approval", "on" if self.cfg.surprise_requires_approval else "off",
+                "yArr: Surprises need Accept/Deny", "mdi:check-decagram-outline"),
+            "input_boolean.yarr_learn_genres_from_library": (
+                "learn_genres_from_library", "on" if self.cfg.learn_genres_from_library else "off",
+                "yArr: Learn genres from library", "mdi:brain"),
+            "input_boolean.yarr_stuck_download_cleanup_enabled": (
+                "stuck_download_cleanup_enabled", "on" if self.cfg.stuck_download_cleanup_enabled else "off",
+                "yArr: Auto-clean stuck downloads", "mdi:download-off-outline"),
+        }
+
     def _ensure_boolean_states(self):
         """Creates the toggle states yArr uses if they don't already
-        exist, so they survive an AppDaemon restart without being
-        reset — these are AppDaemon-owned virtual states, not real
+        exist — these are AppDaemon-owned virtual states, not real
         input_boolean helpers (see the run script's comment on why),
         so the web UI sets them via HA's raw /api/states/<id> endpoint
         rather than an input_boolean service call.
 
-        dry_run/surprise_enabled/tv_surprise_enabled/
-        surprise_requires_approval/learn_genres_from_library used to be
-        apps.yaml-only settings requiring a file edit + restart to
-        change — now live toggles in the web UI's Settings tab instead,
-        seeded from whatever apps.yaml currently says the FIRST time
-        each is created, so upgrading doesn't silently change anyone's
-        existing behaviour. After that first creation, apps.yaml's
-        value for these five is never consulted again — the toggle is
-        the sole source of truth, exactly like yarr_enable already is."""
-        defaults = {
-            "input_boolean.yarr_enable": ("on", "yArr Engine Master Switch", "mdi:movie-open-play"),
-            "input_boolean.yarr_keep_surprise": (
-                "off", "yArr: Keep the pending surprise film", "mdi:heart"),
-            "input_boolean.yarr_keep_surprise_tv": (
-                "off", "yArr: Keep the pending surprise show", "mdi:heart"),
-            "input_boolean.yarr_dry_run": (
-                "on" if self.cfg.dry_run else "off",
-                "yArr: Dry run (log only, no real adds/deletes)", "mdi:test-tube"),
-            "input_boolean.yarr_genre_auto_add_enabled": (
-                "on" if self.cfg.genre_auto_add_enabled else "off",
-                "yArr: Genre auto-add (movies)", "mdi:movie-search-outline"),
-            "input_boolean.yarr_tv_genre_auto_add_enabled": (
-                "on" if self.cfg.tv_genre_auto_add_enabled else "off",
-                "yArr: Genre auto-add (TV)", "mdi:movie-search-outline"),
-            "input_boolean.yarr_surprise_enabled": (
-                "on" if self.cfg.surprise_enabled else "off",
-                "yArr: Surprise me (movies)", "mdi:dice-5-outline"),
-            "input_boolean.yarr_tv_surprise_enabled": (
-                "on" if self.cfg.tv_surprise_enabled else "off",
-                "yArr: Surprise me (TV)", "mdi:dice-5-outline"),
-            "input_boolean.yarr_surprise_requires_approval": (
-                "on" if self.cfg.surprise_requires_approval else "off",
-                "yArr: Surprises need Accept/Deny", "mdi:check-decagram-outline"),
-            "input_boolean.yarr_learn_genres_from_library": (
-                "on" if self.cfg.learn_genres_from_library else "off",
-                "yArr: Learn genres from library", "mdi:brain"),
-            "input_boolean.yarr_stuck_download_cleanup_enabled": (
-                "on" if self.cfg.stuck_download_cleanup_enabled else "off",
-                "yArr: Auto-clean stuck downloads", "mdi:download-off-outline"),
-        }
-        for entity_id, (default_state, name, icon) in defaults.items():
+        Unlike a real input_boolean helper, a raw state like this has
+        no backing integration, so Home Assistant does NOT restore it
+        across its own restart — only surviving an AppDaemon-only
+        restart (HA itself staying up) is free. A plain HA core
+        restart (an update, a reboot — nothing AppDaemon-specific)
+        used to wipe every one of these, so this method would recreate
+        them from apps.yaml's compiled-in defaults, silently
+        re-enabling anything (surprise_enabled, genre_auto_add_enabled,
+        ...) a user had explicitly turned off since. Seeding from
+        self.state_data.settings first — the disk-backed file every
+        other piece of yArr's state already survives restarts through —
+        fixes that: apps.yaml's default is only used the FIRST time an
+        entity is ever created (key absent from settings), exactly
+        like before upgrading also never touched an existing value."""
+        for entity_id, (key, apps_yaml_default, name, icon) in self._boolean_entity_defaults().items():
             if not self.entity_exists(entity_id):
-                self.set_state(entity_id, state=default_state,
+                persisted = self.state_data.settings.get(key) if key else None
+                seed_state = persisted if persisted is not None else apps_yaml_default
+                self.set_state(entity_id, state=seed_state,
                                 attributes={"friendly_name": name, "icon": icon})
+
+    def _on_persisted_toggle_changed(self, entity, attribute, old, new, kwargs):
+        key = kwargs["key"]
+        if new not in ("on", "off") or new == old:
+            return
+        self.state_data = core_state.set_setting(self.state_data, key, new)
+        self._save_state()
+
+    def _listen_for_toggle_changes(self):
+        """Keeps self.state_data.settings (disk-backed) in sync with
+        every boolean entity flip — from the web UI, the HA frontend,
+        or an automation — so _ensure_boolean_states() above always has
+        the latest value to reseed from after HA loses the raw state on
+        its own restart. See that method's docstring for why this is
+        needed at all."""
+        for entity_id, (key, _default, _name, _icon) in self._boolean_entity_defaults().items():
+            if key:
+                self.listen_state(self._on_persisted_toggle_changed, entity_id, key=key)
 
     def _list_setting(self, entity_id, default):
         val = self.get_state(entity_id, attribute="value")
@@ -278,28 +314,85 @@ class Yarr(hass.Hass):
         non-trivial value in this app — surprises, blocked titles,
         library rows — already lives in a sensor's attributes rather
         than its bare state). Numbers stay in the bare state string
-        (always short, no attributes needed)."""
+        (always short, no attributes needed).
+
+        Same restart hazard as _ensure_boolean_states() above (a raw HA
+        state has no backing integration to restore it across an HA
+        core restart), so these are seeded from self.state_data.settings
+        first too, falling back to apps.yaml only on a true first-ever
+        run — see that method's docstring. surprise_genres/
+        tv_surprise_genres genuinely use None (not just an unseeded key)
+        to mean "inherit the main genre list", so presence in the dict
+        is checked explicitly rather than via a plain truthy/`.get`
+        default."""
         list_defaults = {
-            "input_text.yarr_genres": self.cfg.genres,
-            "input_text.yarr_tv_genres": self.cfg.tv_genres,
-            "input_text.yarr_excluded_genres": self.cfg.excluded_genres,
-            "input_text.yarr_surprise_genres": self.cfg.surprise_genres,
-            "input_text.yarr_tv_surprise_genres": self.cfg.tv_surprise_genres,
+            "genres": ("input_text.yarr_genres", self.cfg.genres),
+            "tv_genres": ("input_text.yarr_tv_genres", self.cfg.tv_genres),
+            "excluded_genres": ("input_text.yarr_excluded_genres", self.cfg.excluded_genres),
+            "surprise_genres": ("input_text.yarr_surprise_genres", self.cfg.surprise_genres),
+            "tv_surprise_genres": ("input_text.yarr_tv_surprise_genres", self.cfg.tv_surprise_genres),
         }
-        for entity_id, seed in list_defaults.items():
+        for key, (entity_id, apps_yaml_default) in list_defaults.items():
             if not self.entity_exists(entity_id):
+                settings = self.state_data.settings
+                seed = settings[key] if key in settings else apps_yaml_default
                 self.set_state(entity_id, state="set", attributes={"value": seed})
 
         number_defaults = {
-            "input_number.yarr_min_rating": self.cfg.min_rating,
-            "input_number.yarr_max_suggestions_per_run": self.cfg.max_suggestions_per_run,
-            "input_number.yarr_tv_min_rating": self.cfg.tv_min_rating,
-            "input_number.yarr_tv_max_suggestions_per_run": self.cfg.tv_max_suggestions_per_run,
-            "input_number.yarr_stuck_download_max_hours": self.cfg.stuck_download_max_hours,
+            "min_rating": ("input_number.yarr_min_rating", self.cfg.min_rating),
+            "max_suggestions_per_run": (
+                "input_number.yarr_max_suggestions_per_run", self.cfg.max_suggestions_per_run),
+            "tv_min_rating": ("input_number.yarr_tv_min_rating", self.cfg.tv_min_rating),
+            "tv_max_suggestions_per_run": (
+                "input_number.yarr_tv_max_suggestions_per_run", self.cfg.tv_max_suggestions_per_run),
+            "stuck_download_max_hours": (
+                "input_number.yarr_stuck_download_max_hours", self.cfg.stuck_download_max_hours),
         }
-        for entity_id, seed in number_defaults.items():
+        for key, (entity_id, apps_yaml_default) in number_defaults.items():
             if not self.entity_exists(entity_id):
+                persisted = self.state_data.settings.get(key)
+                seed = persisted if persisted is not None else apps_yaml_default
                 self.set_state(entity_id, state=str(seed))
+
+    def _listen_for_value_changes(self):
+        """Same idea as _listen_for_toggle_changes() above, for the
+        genre-list/number Settings-tab entities _ensure_value_states()
+        seeds — keeps self.state_data.settings current so a lost entity
+        is reseeded from the last real value, not apps.yaml's default,
+        after an HA core restart."""
+        for key, (entity_id, _default) in {
+            "genres": ("input_text.yarr_genres", None),
+            "tv_genres": ("input_text.yarr_tv_genres", None),
+            "excluded_genres": ("input_text.yarr_excluded_genres", None),
+            "surprise_genres": ("input_text.yarr_surprise_genres", None),
+            "tv_surprise_genres": ("input_text.yarr_tv_surprise_genres", None),
+        }.items():
+            self.listen_state(self._on_persisted_list_changed, entity_id,
+                               attribute="value", key=key)
+        for key, entity_id in {
+            "min_rating": "input_number.yarr_min_rating",
+            "max_suggestions_per_run": "input_number.yarr_max_suggestions_per_run",
+            "tv_min_rating": "input_number.yarr_tv_min_rating",
+            "tv_max_suggestions_per_run": "input_number.yarr_tv_max_suggestions_per_run",
+            "stuck_download_max_hours": "input_number.yarr_stuck_download_max_hours",
+        }.items():
+            self.listen_state(self._on_persisted_number_changed, entity_id, key=key)
+
+    def _on_persisted_list_changed(self, entity, attribute, old, new, kwargs):
+        if new == old:
+            return
+        self.state_data = core_state.set_setting(self.state_data, kwargs["key"], new)
+        self._save_state()
+
+    def _on_persisted_number_changed(self, entity, attribute, old, new, kwargs):
+        if new == old:
+            return
+        try:
+            value = float(new)
+        except (TypeError, ValueError):
+            return
+        self.state_data = core_state.set_setting(self.state_data, kwargs["key"], value)
+        self._save_state()
 
     # ------------------------------------------------------------------
     # LOCAL STATE
@@ -398,6 +491,7 @@ class Yarr(hass.Hass):
             candidates = self.tmdb.discover(self._effective_genres(), self._min_rating(),
                                              pages=self.cfg.tmdb_pages)
             radarr_ids = self.radarr.get_library_tmdb_ids()
+            radarr_excluded = self.radarr.get_excluded_tmdb_ids()
         except (TMDBError, RadarrError, JellyfinError) as exc:
             self._log_event(f"tick_discovery failed: {exc}", level="error")
             return
@@ -407,7 +501,7 @@ class Yarr(hass.Hass):
             allowed_genres=self._effective_genres(),
             min_rating=self._min_rating(),
             watched_tmdb_ids=set(self.state_data.watched_tmdb_cache),
-            radarr_tmdb_ids=radarr_ids,
+            radarr_tmdb_ids=radarr_ids, arr_excluded_ids=radarr_excluded,
             already_suggested_tmdb_ids={int(k) for k in self.state_data.suggested} |
                                         {int(k) for k in self.state_data.blocked_movies},
             excluded_genres=self._excluded_genres())
@@ -462,6 +556,7 @@ class Yarr(hass.Hass):
             self._resync_watched_and_taste_if_stale(now)
             candidates = self.tmdb.discover(genres, self._min_rating(), pages=self.cfg.tmdb_pages)
             radarr_ids = self.radarr.get_library_tmdb_ids()
+            radarr_excluded = self.radarr.get_excluded_tmdb_ids()
         except (TMDBError, RadarrError, JellyfinError) as exc:
             self._log_event(f"surprise pick failed: {exc}", level="error")
             return
@@ -469,7 +564,7 @@ class Yarr(hass.Hass):
         pool = core_discovery.filter_candidates(
             candidates, allowed_genres=genres, min_rating=self._min_rating(),
             watched_tmdb_ids=set(self.state_data.watched_tmdb_cache),
-            radarr_tmdb_ids=radarr_ids,
+            radarr_tmdb_ids=radarr_ids, arr_excluded_ids=radarr_excluded,
             already_suggested_tmdb_ids={int(k) for k in self.state_data.suggested} |
                                         {int(k) for k in self.state_data.surprises} |
                                         {int(k) for k in self.state_data.blocked_movies},
@@ -596,6 +691,7 @@ class Yarr(hass.Hass):
             candidates = self.tmdb.discover_tv(self._effective_tv_genres(), self._tv_min_rating(),
                                                 pages=self.cfg.tmdb_pages)
             sonarr_ids = self.sonarr.get_library_tvdb_ids()
+            sonarr_excluded = self.sonarr.get_excluded_tvdb_ids()
         except (TMDBError, SonarrError, JellyfinError) as exc:
             self._log_event(f"tick_tv_discovery failed: {exc}", level="error")
             return
@@ -605,7 +701,7 @@ class Yarr(hass.Hass):
             allowed_genres=self._effective_tv_genres(),
             min_rating=self._tv_min_rating(),
             watched_tmdb_ids=set(self.state_data.watched_tvdb_cache),
-            radarr_tmdb_ids=sonarr_ids,
+            radarr_tmdb_ids=sonarr_ids, arr_excluded_ids=sonarr_excluded,
             already_suggested_tmdb_ids={int(k) for k in self.state_data.suggested_shows} |
                                         {int(k) for k in self.state_data.blocked_shows},
             key="tvdb_id", excluded_genres=self._excluded_genres())
@@ -658,6 +754,7 @@ class Yarr(hass.Hass):
             self._resync_watched_and_taste_if_stale(now)
             candidates = self.tmdb.discover_tv(genres, self._tv_min_rating(), pages=self.cfg.tmdb_pages)
             sonarr_ids = self.sonarr.get_library_tvdb_ids()
+            sonarr_excluded = self.sonarr.get_excluded_tvdb_ids()
         except (TMDBError, SonarrError, JellyfinError) as exc:
             self._log_event(f"TV surprise pick failed: {exc}", level="error")
             return
@@ -665,7 +762,7 @@ class Yarr(hass.Hass):
         pool = core_discovery.filter_candidates(
             candidates, allowed_genres=genres, min_rating=self._tv_min_rating(),
             watched_tmdb_ids=set(self.state_data.watched_tvdb_cache),
-            radarr_tmdb_ids=sonarr_ids,
+            radarr_tmdb_ids=sonarr_ids, arr_excluded_ids=sonarr_excluded,
             already_suggested_tmdb_ids={int(k) for k in self.state_data.suggested_shows} |
                                         {int(k) for k in self.state_data.surprises_shows} |
                                         {int(k) for k in self.state_data.blocked_shows},

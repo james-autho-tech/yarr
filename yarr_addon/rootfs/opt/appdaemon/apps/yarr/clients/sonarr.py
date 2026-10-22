@@ -70,6 +70,19 @@ class SonarrClient:
             "added": s.get("added"),
         } for s in (series_list or []) if s.get("tvdbId")]
 
+    def get_excluded_tvdb_ids(self) -> set:
+        """Sonarr's own import-list exclusion list — what "Delete + Add
+        exclusion" writes. yArr treats it as a hard veto on auto-adds
+        (see core/discovery.filter_candidates). Newer Sonarr versions
+        deprecate the unpaged endpoint in favour of /paged, so falls
+        back to that if the unpaged one is gone."""
+        try:
+            _, body = self._request("GET", "/importlistexclusion")
+        except SonarrError:
+            _, body = self._request("GET", "/importlistexclusion/paged?pageSize=100000")
+        records = (body or {}).get("records") if isinstance(body, dict) else body
+        return {r["tvdbId"] for r in (records or []) if r.get("tvdbId")}
+
     def get_queue(self) -> list:
         """Sonarr's own Activity/Queue listing — mirrors
         radarr.get_queue(); used to find stuck/dead downloads (see

@@ -42,7 +42,7 @@ class TVCandidate:
 
 def filter_candidates(candidates, *, allowed_genres, min_rating,
                        watched_tmdb_ids, radarr_tmdb_ids, already_suggested_tmdb_ids,
-                       key="tmdb_id", excluded_genres=None):
+                       key="tmdb_id", excluded_genres=None, arr_excluded_ids=None):
     """Empty allowed_genres = no genre filter. Works identically for
     Candidate and TVCandidate — pass key="tvdb_id" for TV, where
     Sonarr/Jellyfin exclusion sets are naturally TVDB-keyed.
@@ -51,7 +51,13 @@ def filter_candidates(candidates, *, allowed_genres, min_rating,
     allowed_genres — a candidate carrying an excluded genre is dropped
     even if it also matches an allowed one, and even when
     allowed_genres is empty ("no genre filter" only ever means no
-    *inclusion* filter, never bypasses an explicit exclusion)."""
+    *inclusion* filter, never bypasses an explicit exclusion).
+
+    arr_excluded_ids is Radarr's/Sonarr's own import-list exclusion
+    list (what "Delete + Add exclusion" writes) — another hard veto, so
+    a title you deleted that way is never auto-added back just because
+    it's no longer in the library."""
+    arr_excluded = set(arr_excluded_ids or ())
     allowed = {g.lower() for g in (allowed_genres or [])}
     excluded = {g.lower() for g in (excluded_genres or [])}
     out = []
@@ -67,6 +73,8 @@ def filter_candidates(candidates, *, allowed_genres, min_rating,
         if cid in watched_tmdb_ids:
             continue
         if cid in radarr_tmdb_ids:
+            continue
+        if cid in arr_excluded:
             continue
         if cid in already_suggested_tmdb_ids:
             continue

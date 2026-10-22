@@ -197,6 +197,30 @@ class YarrState:
     calendar_entries: list = field(default_factory=list)
     calendar_synced_at: str = None
 
+    # Live Settings-tab values (toggles/genre lists/numbers) — yarr.py's
+    # only durable copy of these. They're presented to the user as HA
+    # entity states (input_boolean/input_text/input_number), but those
+    # are raw states with no backing integration (see yarr.py's
+    # _ensure_boolean_states docstring for why real helpers aren't
+    # used) — Home Assistant does NOT restore a raw state across its
+    # own restart the way it restores a real helper's state, only
+    # AppDaemon staying up independently of HA kept them alive before.
+    # A plain HA core restart (an update, a reboot, anything short of
+    # AppDaemon itself dying) used to silently wipe every one of these
+    # entities, so yarr.py would recreate them from apps.yaml's
+    # compiled-in defaults — e.g. surprise_enabled/genre_auto_add_enabled
+    # snapping back to True, silently re-enabling auto-adds a user had
+    # explicitly turned off. Mirroring each value here, in the same
+    # disk-backed file everything else in this module already survives
+    # restarts through, is what actually fixes that: yarr.py seeds a
+    # recreated entity from here first, only falling back to apps.yaml
+    # on a true first-ever run (key absent). Keyed by the same short
+    # names yarr.py/webui.py already use (e.g. "dry_run",
+    # "surprise_enabled", "genres") -> the raw value that was in the HA
+    # entity (bool for a boolean, list for a genre list, float for a
+    # number).
+    settings: dict = field(default_factory=dict)
+
 
 def _film_to_dict(film):
     return asdict(film)
@@ -274,6 +298,7 @@ def load(path: str) -> YarrState:
         cleared_stuck_downloads_shows=list(raw.get("cleared_stuck_downloads_shows", [])),
         calendar_entries=list(raw.get("calendar_entries", [])),
         calendar_synced_at=raw.get("calendar_synced_at"),
+        settings=dict(raw.get("settings", {})),
     )
 
 
@@ -319,6 +344,7 @@ def save(state: YarrState, path: str) -> None:
         "cleared_stuck_downloads_shows": state.cleared_stuck_downloads_shows,
         "calendar_entries": state.calendar_entries,
         "calendar_synced_at": state.calendar_synced_at,
+        "settings": state.settings,
     }
     try:
         with open(path, "w") as f:
@@ -512,6 +538,12 @@ def unblock_show(state: YarrState, tvdb_id: int) -> YarrState:
     blocked = dict(state.blocked_shows)
     blocked.pop(str(tvdb_id), None)
     return _replace(state, blocked_shows=blocked)
+
+
+def set_setting(state: YarrState, key: str, value) -> YarrState:
+    settings = dict(state.settings)
+    settings[key] = value
+    return _replace(state, settings=settings)
 
 
 def _replace(state: YarrState, **changes) -> YarrState:

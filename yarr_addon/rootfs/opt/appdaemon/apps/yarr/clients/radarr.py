@@ -72,6 +72,19 @@ class RadarrClient:
             "added": m.get("added"),
         } for m in (movies or [])]
 
+    def get_excluded_tmdb_ids(self) -> set:
+        """Radarr's own import-list exclusion list — what "Delete + Add
+        exclusion" writes. yArr treats it as a hard veto on auto-adds
+        (see core/discovery.filter_candidates). Newer Radarr versions
+        deprecate the unpaged endpoint in favour of /paged, so falls
+        back to that if the unpaged one is gone."""
+        try:
+            _, body = self._request("GET", "/exclusions")
+        except RadarrError:
+            _, body = self._request("GET", "/exclusions/paged?pageSize=100000")
+        records = (body or {}).get("records") if isinstance(body, dict) else body
+        return {r["tmdbId"] for r in (records or []) if r.get("tmdbId")}
+
     def get_queue(self) -> list:
         """Radarr's own Activity/Queue listing — used to find stuck/dead
         downloads (see core/queue.py). Response shape varies by version:

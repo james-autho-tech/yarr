@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.23.1
+
+- **Fixed Settings-tab toggles (and genre lists/numbers) silently
+  reverting to apps.yaml's defaults on a Home Assistant restart** —
+  including `surprise_enabled`/`genre_auto_add_enabled` snapping back
+  to on, which meant a plain HA update or reboot could quietly
+  re-enable auto-adds you'd explicitly turned off. Cause: these live in
+  HA as raw states with no backing helper (see `_ensure_boolean_states`
+  for why), which Home Assistant doesn't restore across its own
+  restart the way it restores a real `input_boolean`/`input_number`
+  helper — only surviving an AppDaemon-only restart was actually free.
+  Every one of these is now mirrored into yArr's own disk-backed state
+  file as it changes, and a recreated entity is reseeded from there
+  first — apps.yaml's default is only used on a value's true first-ever
+  creation, same as before.
+
+- **Auto-adds now honour Radarr's and Sonarr's own exclusion lists.**
+  Deleting something in Radarr/Sonarr with "Add exclusion" (or adding
+  it under Settings → Import Lists → Exclusions) now stops yArr's genre
+  auto-add and surprise picks from ever adding it back. Previously yArr
+  only skipped what was currently *in* the library, so a deleted title
+  was fair game again. If the exclusion list can't be fetched, that
+  run is skipped rather than adding blind.
+
 ## 0.23.0
 
 - Added a **Calendar** tab: a month-grid calendar of upcoming movie

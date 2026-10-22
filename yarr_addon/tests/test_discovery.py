@@ -88,3 +88,22 @@ def test_excluded_genres_applies_even_with_no_allowed_list():
                              watched_tmdb_ids=set(), radarr_tmdb_ids=set(),
                              already_suggested_tmdb_ids=set(), excluded_genres=["horror"])
     assert [c.tmdb_id for c in out] == [2]
+
+
+def test_arr_exclusion_list_vetoes_title_not_in_library():
+    # Deleted from Radarr with "Add exclusion" — gone from the library,
+    # but must still never be auto-added back.
+    cands = [make(1), make(2)]
+    out = filter_candidates(cands, allowed_genres=[], min_rating=0,
+                             watched_tmdb_ids=set(), radarr_tmdb_ids=set(),
+                             already_suggested_tmdb_ids=set(), arr_excluded_ids={1})
+    assert [c.tmdb_id for c in out] == [2]
+
+
+def test_arr_exclusion_list_tv_uses_tvdb_id_as_key():
+    cands = [make_tv(101, tmdb_id=1), make_tv(102, tmdb_id=2)]
+    out = filter_candidates(cands, allowed_genres=[], min_rating=0,
+                             watched_tmdb_ids=set(), radarr_tmdb_ids=set(),
+                             already_suggested_tmdb_ids=set(), key="tvdb_id",
+                             arr_excluded_ids={101})
+    assert [c.tvdb_id for c in out] == [102]
