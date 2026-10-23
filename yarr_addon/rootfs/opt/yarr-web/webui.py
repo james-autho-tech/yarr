@@ -616,6 +616,10 @@ let calendarViewYear = null, calendarViewMonth = null;
 let searchMediaType = 'movie';
 let allowLibraryDelete = false;
 let arrAdmin = {};
+// Note: HA state attributes drop falsy values (0, false, null) entirely
+// on the way through, so anything read from api/status must treat a
+// missing key as 0/false — e.g. season 0 (Specials) arrives with no
+// season_number at all.
 let detailOpen = null;          // {source, id} while the detail modal shows a library item
 let profilesSig = null;         // last-rendered Profiles tab data, to skip no-op re-renders
 let profilesDirty = false;      // unsaved edits in a profile card — don't re-render over them
@@ -973,7 +977,7 @@ function manageBlock(app, item) {
       ${app === 'radarr' ? `<span class="section-note">${item.has_file ? 'downloaded' : 'missing'}</span>` : ''}
     </div>
     ${seasons.length ? `<table class="list"><thead><tr><th>Season</th><th>Episodes</th><th>Monitored</th><th></th></tr></thead><tbody>
-      ${seasons.map(se => `<tr><td class="title-cell">${se.season_number === 0 ? 'Specials' : 'Season ' + se.season_number}</td>
+      ${seasons.map(se => ({...se, season_number: se.season_number || 0})).map(se => `<tr><td class="title-cell">${se.season_number === 0 ? 'Specials' : 'Season ' + se.season_number}</td>
         <td class="year">${se.episode_file_count||0} / ${se.episode_count||0}</td>
         <td>${monitorToggle(`setSeasonMonitored(this,${id},${se.season_number},false)`, `setSeasonMonitored(this,${id},${se.season_number},true)`, se.monitored)}</td>
         <td><button class="small-delete" onclick="runAction(this,'api/library-search',{app:'sonarr',id:${id},season_number:${se.season_number}})">Search</button></td></tr>`).join('')}

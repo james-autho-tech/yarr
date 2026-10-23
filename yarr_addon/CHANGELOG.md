@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.26.4
+
+- Fixed the Specials (season 0) row in a show's detail view showing as
+  "Season undefined", with its monitor/search buttons sending no season.
+
 ## 0.26.3
 
 - **Extra junk scan folders** (Settings tab): folders scanned for failed
