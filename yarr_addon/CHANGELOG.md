@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.26.3
+
+- **Extra junk scan folders** (Settings tab): folders scanned for failed
+  and stranded unpacks only, never duplicates — for SABnzbd's completed
+  folder once it lives outside the library. A folder that doesn't exist
+  is logged and skipped.
+
 ## 0.26.2
 
 - Can move SABnzbd's completed-download folder (`yarr_sabnzbd_set_complete_dir`

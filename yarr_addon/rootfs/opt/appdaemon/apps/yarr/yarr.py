@@ -302,6 +302,13 @@ class Yarr(hass.Hass):
     def _tv_genres(self):
         return self._list_setting("input_text.yarr_tv_genres", self.cfg.tv_genres)
 
+    def _extra_junk_scan_paths(self):
+        """Settings-tab folders scanned for leftover-unpack junk and
+        stranded unpacks only — never for duplicates, since a download
+        folder legitimately holds a second copy mid-import. For SABnzbd's
+        completed folder once it lives outside the library."""
+        return self._list_setting("input_text.yarr_extra_junk_scan_paths", [])
+
     def _excluded_genres(self):
         return self._list_setting("input_text.yarr_excluded_genres", self.cfg.excluded_genres)
 
@@ -368,6 +375,7 @@ class Yarr(hass.Hass):
             "excluded_genres": ("input_text.yarr_excluded_genres", self.cfg.excluded_genres),
             "surprise_genres": ("input_text.yarr_surprise_genres", self.cfg.surprise_genres),
             "tv_surprise_genres": ("input_text.yarr_tv_surprise_genres", self.cfg.tv_surprise_genres),
+            "extra_junk_scan_paths": ("input_text.yarr_extra_junk_scan_paths", []),
         }
         for key, (entity_id, apps_yaml_default) in list_defaults.items():
             if not self.entity_exists(entity_id):
@@ -403,6 +411,7 @@ class Yarr(hass.Hass):
             "excluded_genres": ("input_text.yarr_excluded_genres", None),
             "surprise_genres": ("input_text.yarr_surprise_genres", None),
             "tv_surprise_genres": ("input_text.yarr_tv_surprise_genres", None),
+            "extra_junk_scan_paths": ("input_text.yarr_extra_junk_scan_paths", None),
         }.items():
             self.listen_state(self._on_persisted_list_changed, entity_id,
                                attribute="value", key=key)
@@ -1228,7 +1237,14 @@ class Yarr(hass.Hass):
         media_files = []
         junk_entries = []
         stranded = []
-        for root_path in self.cfg.media_scan_paths:
+        roots = [(p, True) for p in self.cfg.media_scan_paths]
+        for p in self._extra_junk_scan_paths():
+            if os.path.isdir(p):
+                roots.append((p, False))
+            else:
+                self._log_event(f"Extra junk scan folder {p!r} doesn't exist (as Home Assistant sees it) — "
+                                 "skipped.", level="warn")
+        for root_path, scan_duplicates in roots:
             for dirpath, dirnames, filenames in os.walk(root_path):
                 keep_dirs = []
                 for d in dirnames:
@@ -1262,7 +1278,8 @@ class Yarr(hass.Hass):
                         if mtime <= age_cutoff and not core_junk.matches_active_job(name, active_job_names):
                             junk_entries.append({"path": full_path, "size": size, "is_dir": False})
                         continue
-                    media_files.append(core_dupes.MediaFile(path=full_path, size=size))
+                    if scan_duplicates:
+                        media_files.append(core_dupes.MediaFile(path=full_path, size=size))
         return media_files, junk_entries, stranded
 
     def _all_tracked_media_basenames(self) -> set:
@@ -1467,7 +1484,7 @@ class Yarr(hass.Hass):
         the configured scan roots (never deletes the root itself, and
         never walks outside it either, so this can't reach anywhere on
         the mount yArr wasn't told to manage)."""
-        roots = [os.path.normpath(p) for p in self.cfg.media_scan_paths]
+        roots = [os.path.normpath(p) for p in self.cfg.media_scan_paths + self._extra_junk_scan_paths()]
         directory = os.path.dirname(os.path.normpath(deleted_path))
         while directory not in roots and any(
                 directory.startswith(root + os.sep) for root in roots):

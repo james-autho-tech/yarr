@@ -45,7 +45,10 @@ LIST_SETTINGS = {
     "surprise-genres": ("input_text.yarr_surprise_genres", "Surprise-only genres (movies)", True),
     "tv-genres": ("input_text.yarr_tv_genres", "TV genres", False),
     "tv-surprise-genres": ("input_text.yarr_tv_surprise_genres", "Surprise-only genres (TV)", True),
+    "extra-junk-scan-paths": ("input_text.yarr_extra_junk_scan_paths", "Extra junk scan folders", False),
 }
+# Folder paths are case-sensitive — never lowercased like genre names.
+CASE_SENSITIVE_LIST_SETTINGS = {"extra-junk-scan-paths"}
 # (entity_id, label, min, max, step)
 NUMBER_SETTINGS = {
     "min-rating": ("input_number.yarr_min_rating", "Minimum rating (movies)", 0, 10, 0.1),
@@ -185,6 +188,7 @@ def build_status():
         "surprise_genres_editable": list_value(states.get("input_text.yarr_surprise_genres"), None),
         "tv_genres_editable": list_value(states.get("input_text.yarr_tv_genres"), []),
         "tv_surprise_genres_editable": list_value(states.get("input_text.yarr_tv_surprise_genres"), None),
+        "extra_junk_scan_paths_editable": list_value(states.get("input_text.yarr_extra_junk_scan_paths"), []),
         "min_rating": number_value(states.get("input_number.yarr_min_rating"), 7.0),
         "max_suggestions_per_run": number_value(states.get("input_number.yarr_max_suggestions_per_run"), 3),
         "tv_min_rating": number_value(states.get("input_number.yarr_tv_min_rating"), 7.0),
@@ -743,7 +747,8 @@ function addGenre(name) {
   const v = input ? input.value.trim() : '';
   if (!v) return;
   const current = (currentGenreLists[name] || []).slice();
-  if (!current.includes(v.toLowerCase())) current.push(v.toLowerCase());
+  const val = name === 'extra-junk-scan-paths' ? v : v.toLowerCase();
+  if (!current.includes(val)) current.push(val);
   input.value = '';
   saveGenreList(name, current);
 }
@@ -1453,6 +1458,7 @@ async function refresh() {
     'genres': d.genres_editable, 'excluded-genres': d.excluded_genres_editable,
     'surprise-genres': d.surprise_genres_editable, 'tv-genres': d.tv_genres_editable,
     'tv-surprise-genres': d.tv_surprise_genres_editable,
+    'extra-junk-scan-paths': d.extra_junk_scan_paths_editable,
   };
   document.getElementById('settings-list').innerHTML =
     settingsRow('dry-run', 'Dry run',
@@ -1480,6 +1486,8 @@ async function refresh() {
       'Removes and blocklists a Radarr/Sonarr queue item once Radarr/Sonarr flags it as errored, or once it has been queued longer than the threshold below (a dead NZB with missing articles never resolves on its own) — Radarr/Sonarr then searches for a replacement automatically. Never touches SABnzbd directly.',
       d.stuck_download_cleanup_enabled)
     + numberSettingEditor('stuck-download-hours', 'Stuck download threshold (hours)', d.stuck_download_max_hours, 1)
+    + (d.media_scan_enabled ? `<div class="mode-line" style="margin-top:14px">Extra folders scanned for failed unpacks / stranded unpacks only (never duplicates) — e.g. SABnzbd's completed folder once it's outside the library. Paths as Home Assistant sees them, e.g. /media/…</div>`
+      + genreListEditor('extra-junk-scan-paths', 'Extra junk scan folders', d.extra_junk_scan_paths_editable, false) : '')
     + `<div class="section-note" style="margin:20px 0 6px">Movie genres</div>`
     + genreListEditor('genres', 'Movie genres', d.genres_editable, false)
     + genreListEditor('excluded-genres', 'Never suggest (movies + TV)', d.excluded_genres_editable, false)
@@ -1578,7 +1586,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 else:
                     entity_id, _, nullable = entry
                     values = body.get("values")
-                    value = ([str(v).strip().lower() for v in values if str(v).strip()]
+                    keep_case = body.get("name") in CASE_SENSITIVE_LIST_SETTINGS
+                    value = ([str(v).strip() if keep_case else str(v).strip().lower()
+                              for v in values if str(v).strip()]
                              if values is not None else None)
                     if value is None and not nullable:
                         value = []
